@@ -1,0 +1,25 @@
+{
+    "name": "xilon/php-mpm",
+    "description": "Supports multi-processing event-driven model",
+    "type": "library",
+    "authors": [
+        {
+            "name": "Julien Pons",
+            "email": "xilon.jul@gmail.com"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Loop\\": ["./src"]
+        }
+    },
+    "require": {
+    		"ext-pcntl": "*",
+        "ext-event": "2.4.0",
+        "php": "~7.2.6",
+        "nikic/php-parser": "4.0.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^7.3"
+    }
+}
