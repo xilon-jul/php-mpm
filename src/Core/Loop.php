@@ -61,6 +61,12 @@ class Loop
 
     private $exitCode = 0;
 
+    /**
+     * Loop constructor.
+     * Constructs the main loop object and assign to it one or many labels. Labels are just aliases
+     * to process pid which can further be used to target a process when sending a message
+     * @param string ...$labels the labels to add to loop
+     */
     public function __construct(string ...$labels)
     {
         $this->eb = new \EventBase();
@@ -119,6 +125,13 @@ class Loop
         });
     }
 
+    /**
+     * Signal handler.
+     * Defaults handler is used for :
+     *  - SIGTERM => Gracefully shutdowns the processes
+     *  - SIGCHLD, SIGSTOP, SIGCONT for internal usage
+     * @param int $signo the signal number received (@see man kill)
+     */
     public function sighdl(int $signo)
     {
         $status = null;
@@ -184,6 +197,7 @@ class Loop
         $this->addAction(new LoopAction($triggerName, $persistent, $immediate, $callable, $forkSurviveStrategy));
         return $this;
     }
+
 
     public function addPeriodTimer($interval, $maxExecution = -1, callable $callable): Loop
     {
@@ -367,7 +381,6 @@ class Loop
         }
     }
 
-
     private function log(string $format, ...$args){
         if(!$this->enableLogger){
             return;
@@ -376,6 +389,12 @@ class Loop
         fprintf(STDOUT, "Pid: %5d - %-100s\n", posix_getpid(), $log);
     }
 
+    /**
+     * Ask this loop to stop and free all resources.
+     * Timers are freed as well as any pair of sockets used for internal process communication.
+     * Pending actions are dispatched before the process exits.
+     * @return Loop this loop
+     */
     public function stop(): Loop
     {
         if(!$this->isRunning()){
@@ -387,7 +406,7 @@ class Loop
         return $this;
     }
 
-    public function prepareActionForRuntime(string $triggerName, ...$args){
+    private function prepareActionForRuntime(string $triggerName, ...$args){
         /**
          * @var $action LoopAction
          */
@@ -400,10 +419,21 @@ class Loop
         });
     }
 
+    /**
+     * Is the main loop running
+     * @return bool true if so
+     */
     public function isRunning(): bool {
         return $this->running;
     }
 
+    /**
+     * Forks a new child process
+     * @param \Closure|null $childCallback a callable invoked in the child process context
+     * @param string ...$labels the process labels to assign
+     * @return int the process pid in the parent context the child never returns
+     * @throws \Exception if for any reason we cant fork
+     */
     public function fork(\Closure $childCallback = null, string ...$labels): int
     {
         if(!$this->isRunning()){
@@ -530,7 +560,8 @@ class Loop
     }
 
     /**
-     * @return ProcessInfo
+     * Gets this process info
+     * @return ProcessInfo the process readable information
      */
     public function getProcessInfo(): ProcessInfo
     {
