@@ -59,6 +59,8 @@ class Loop
      */
     private $eb;
 
+    private $exitCode = 0;
+
     public function __construct(string ...$labels)
     {
         $this->eb = new \EventBase();
@@ -441,6 +443,8 @@ class Loop
         } else {
             socket_close($pairs[0]);
             $this->eb->reInit();
+            // Reset exitCode
+            $this->exitCode = 0;
             // Clear all buffers
             $this->writeBuffers = $this->readBuffers = [];
             // Keep all actions that wish to propagate and remove all triggers
@@ -542,6 +546,15 @@ class Loop
         return $this;
     }
 
+
+    public function setExitCode(int $exitCode = 0): Loop {
+        if($exitCode < 0 || $exitCode >= 255){
+            throw new \RuntimeException("Exit code must be between 0 and 254. 255 is reserved for PHP");
+        }
+        $this->exitCode = $exitCode;
+        return $this;
+    }
+
     private function shutdown(){
         array_walk($this->getProcessInfo()->getChildren(), function(ProcessInfo $childInfo){
             $this->log("Sending SIGTERM to %-5d", $childInfo->getPid());
@@ -578,8 +591,7 @@ class Loop
         $this->eb->free();
         $this->log("Bye bye");
         if(!$this->thisProcessInfo->isRootOfHierarchy()){
-            exit(0);
+            exit($this->exitCode);
         }
     }
-
 }

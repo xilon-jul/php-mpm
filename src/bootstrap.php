@@ -30,6 +30,7 @@ $loop->addPeriodTimer(1, 5, function() use($loop, $pid) {
     $loop->fork(null, 'group1');
 });
 */
+$loop->detach();
 
 $loop->fork(null, 'group1');
 $loop->fork(null, 'group1');
