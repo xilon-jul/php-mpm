@@ -90,6 +90,12 @@ class ProcessInfo {
         return $this->children[$pid];
     }
 
+    public function getProcessInfoByLabel(string $label): ?ProcessInfo {
+        return array_shift(array_filter($this->getChildren(), function(ProcessInfo $child) use($label) {
+           return $this->hasLabel($label);
+        }));
+    }
+
     public function freePipe(int $pid): bool {
         /**
          * @var $p Pipe
