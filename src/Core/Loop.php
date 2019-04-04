@@ -167,9 +167,7 @@ class Loop
         if(!$processInfo){
             // A loop might fork processes using proc_open or any other functions, therefor we might
             // not have a corresponding child for the process we received the SIGCHILD for
-            $this->setTriggerFlag(LoopAction::LOOP_ACTION_PROCESS_FOREIGN_CHILD_TERMINATED, true);
-            $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_FOREIGN_CHILD_TERMINATED, $pid);
-            return;
+            $this->thisProcessInfo->addChild(new ProcessInfo($pid));
         }
         if (pcntl_wifexited($status)) {
             $this->log("Pid %-5d has exited", $pid);
