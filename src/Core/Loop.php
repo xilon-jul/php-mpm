@@ -536,6 +536,9 @@ class Loop
         });
         $cpid = posix_getpid();
         $nbActions = count($this->loopActions);
+        if($nbActions !== 0){
+            $this->thisProcessInfo->setAvailable(false);
+        }
         for($i = 0; $i < $nbActions; $i++){
             $action = $this->loopActions[$i];
             $trigger = $action->trigger();
@@ -557,6 +560,7 @@ class Loop
         array_walk($triggersToDisable, function($triggerFlag, $triggerName){
             $this->setTriggerFlag($triggerName, $triggerFlag);
         });
+        $this->thisProcessInfo->setAvailable(true);
     }
 
     /**

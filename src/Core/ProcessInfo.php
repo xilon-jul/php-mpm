@@ -7,11 +7,17 @@ class ProcessInfo {
     const PROCESS_ST_STOPPED = 1;
     const PROCESS_ST_EXITED = 2;
 
+    const AVAIL_READY = 0;
+    const AVAIL_WORKING = 1;
+
+
     private static $statusMapping = [
-        0 => 'Running',
-        1 => 'Stopped',
-        2 => 'Exited'
+        self::PROCESS_ST_RUNNING => 'Running',
+        self::PROCESS_ST_STOPPED => 'Stopped',
+        self::PROCESS_ST_EXITED => 'Exited'
     ];
+
+    private $availibility = self::AVAIL_READY;
 
     private $parent = null;
     private $children = [];
@@ -49,6 +55,14 @@ class ProcessInfo {
         return $this;
     }
 
+    public function isAvailable(){
+        return $this->availibility === self::AVAIL_READY;
+    }
+
+    public function setAvailable(bool $available): ProcessInfo {
+        $this->availibility = ($available ? self::AVAIL_READY : self::AVAIL_WORKING);
+        return $this;
+    }
 
     public function setResourceUsage(array $resourceUsage){
         $this->rusage = $resourceUsage;
