@@ -20,6 +20,7 @@ final class LoopAction
     const LOOP_ACTION_MESSAGE_RECEIVED = 'internal_action_message_received';
     const LOOP_ACTION_PROCESS_TERMINATED = 'internal_action_process_terminated';
     const LOOP_ACTION_PROCESS_CHILD_TERMINATED = 'internal_action_process_child_terminated';
+    const LOOP_ACTION_PROCESS_FOREIGN_CHILD_TERMINATED = 'internal_action_process_foreign_child_terminated';
     const LOOP_ACTION_PROCESS_ORPHANED = 'internal_action_process_orphaned';
     const LOOP_ACTION_PROCESS_CHANNEL_CLOSED = 'internal_action_process_channel_closed';
 

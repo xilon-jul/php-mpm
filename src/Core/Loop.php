@@ -162,7 +162,15 @@ class Loop
         $this->log("Waited after process child %d - All children = (%s)", $pid, implode(',', array_map(function(ProcessInfo $c){
             return $c->getPid();
         }, $this->thisProcessInfo->getChildren())));
+
         $processInfo = $this->thisProcessInfo->getProcessInfo($pid);
+        if(!$processInfo){
+            // A loop might fork processes using proc_open or any other functions, therefor we might
+            // not have a corresponding child for the process we received the SIGCHILD for
+            $this->setTriggerFlag(LoopAction::LOOP_ACTION_PROCESS_FOREIGN_CHILD_TERMINATED, true);
+            $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_FOREIGN_CHILD_TERMINATED, $pid);
+            return;
+        }
         if (pcntl_wifexited($status)) {
             $this->log("Pid %-5d has exited", $pid);
             $processInfo->setStatus(ProcessInfo::PROCESS_ST_EXITED, sprintf("Process exited with status: %d", $status))
@@ -473,6 +481,7 @@ class Loop
         } else {
             socket_close($pairs[0]);
             $this->eb->reInit();
+            $this->eb = new \EventBase();
             // Reset exitCode
             $this->exitCode = 0;
             // Clear all buffers
