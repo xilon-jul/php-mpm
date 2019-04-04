@@ -92,7 +92,7 @@ class ProcessInfo {
 
     public function getProcessInfoByLabel(string $label): ?ProcessInfo {
         return array_shift(array_filter($this->getChildren(), function(ProcessInfo $child) use($label) {
-           return $this->hasLabel($label);
+           return $child->hasLabel($label);
         }));
     }
 
