@@ -208,7 +208,7 @@ class Loop
                 return;
             }
             $nbExecution++;
-            call_user_func($callable);
+            call_user_func($callable, $this);
 
         });
         $ev->add($interval);
