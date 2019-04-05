@@ -243,6 +243,10 @@ class Loop
         return $this;
     }
 
+    public function setDefaultTimeout(float $timeout){
+        self::$DEFAULT_TIMEOUT = $timeout;
+    }
+
     public function submit(ProcessResolutionProtocolMessage $message): Loop
     {
         if (!$message->getField('destination_pid')->getValue() && !$message->getField('destination_label')->getValue()) {
