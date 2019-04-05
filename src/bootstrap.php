@@ -11,14 +11,14 @@ require_once __DIR__.'/../vendor/autoload.php';
 
 
 $loop = new \Loop\Core\Loop();
-//$loop->setLoggingEnabled(false);
+$loop->setLoggingEnabled(false);
 
 $barrier = 1;
-//$barrier = new PosixSignalBarrier(2);
+$barrier = new PosixSignalBarrier(2);
 
 
 $loop->registerActionForTrigger(LoopAction::LOOP_ACTION_PROCESS_TERMINATED, false, false, function(Loop $loop, ProcessInfo $info) use($barrier) {
-    fprintf(STDOUT, "Action on termination");
+    fprintf(STDOUT, "Action on termination\n");
     $barrier = null;
 });
 
@@ -30,7 +30,7 @@ $loop->fork(function(Loop $childloop) use ($barrier) {
             if(false === $slept || $slept > 0){
                 fprintf(STDERR, "Failed to sleep : $slept\n");
             }
-            //$barrier->await();
+            $barrier->await();
             fprintf(STDOUT, "In process: %d : received message : %s\n", $loop->getProcessInfo()->getPid(), $message->getField('data')->getValue());
         });
 }, 'group1');
@@ -43,7 +43,7 @@ $loop->fork(function(Loop $childloop) use ($barrier) {
             if(false === $slept || $slept > 0){
                 fprintf(STDERR, "Failed to sleep : $slept\n");
             }
-            // $barrier->await();
+            $barrier->await();
             fprintf(STDOUT, "In process: %d : received message : %s\n", $loop->getProcessInfo()->getPid(), $message->getField('data')->getValue());
         });
 }, 'group1');

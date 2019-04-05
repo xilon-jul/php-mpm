@@ -20,7 +20,7 @@ class Loop
      */
     private $running = true;
 
-    private $enableLogger = true;
+    private $enableLogger = false;
 
     /**
      * @var ProcessInfo $thisProcessInfo
