@@ -50,9 +50,9 @@ class Loop
     private $triggers = [];
 
     /**
-     * @var \Event[] $timers
+     * @var \Event[] $events
      */
-    private $timers = [];
+    private $events = [];
 
     /**
      * @var \EventBase $base
@@ -60,6 +60,8 @@ class Loop
     private $eb;
 
     private $exitCode = 0;
+
+    private static $DEFAULT_TIMEOUT = 3;
 
     /**
      * Loop constructor.
@@ -112,6 +114,7 @@ class Loop
 
     private function _registerSighandlers(): void
     {
+        $this->log('Registering signals');
         pcntl_signal(SIGCHLD, [$this, 'sighdl']);
         pcntl_signal(SIGCONT, [$this, 'sighdl']);
         pcntl_signal(SIGTERM, [$this, 'sighdl']);
@@ -157,6 +160,8 @@ class Loop
                 break;
         }
     }
+
+
 
     private function _handleWaitPid(int $pid, string $status, array $rusage): void {
         $this->log("Waited after process child %d - All children = (%s)", $pid, implode(',', array_map(function(ProcessInfo $c){
@@ -218,19 +223,19 @@ class Loop
 
         });
         $ev->add($interval);
-        $this->timers[] = $ev;
+        $this->events[] = $ev;
         return $this;
     }
 
-    private function freeTimers(){
-        $nbTimers = count($this->timers);
+    private function freeEvents(){
+        $nbTimers = count($this->events);
         for($i = 0; $i < $nbTimers; $i++){
-            $timer = $this->timers[$i];
+            $timer = $this->events[$i];
             $timer->del();
             $timer->free();
             $timer = null;
         }
-        $this->timers = [];
+        $this->events = [];
     }
 
     public function setCliCommandTitle(string $title) : Loop {
@@ -408,7 +413,7 @@ class Loop
         }
         $this->log("Stopping loop");
         $this->running = false;
-        $this->freeTimers();
+        $this->freeEvents();
         return $this;
     }
 
@@ -473,7 +478,7 @@ class Loop
                 (new ProcessInfo($pid))
                     ->setLabels(...$labels)
             )->addPipe(new Pipe($pid, $pairs[0], $read, $write, ...$labels));
-            $read->add();
+            $read->add(self::$DEFAULT_TIMEOUT);
             $this->log("Ended fork: %-5d", $pid);
             return $pid;
         } else {
@@ -501,7 +506,7 @@ class Loop
             $read = new \Event($this->eb, $pairs[1], \Event::READ | \Event::PERSIST, function ($fd, int $what, $args) use (&$read) {
                 $this->_read($fd, $what, $read, $args);
             }, posix_getppid());
-            $read->add();
+            $read->add(self::$DEFAULT_TIMEOUT);
             $write = new \Event($this->eb, $pairs[1], \Event::WRITE, function ($fd, int $what, $args) use (&$write) {
                 $this->_write($fd, $what, $write, $args);
             }, posix_getppid());
@@ -559,7 +564,7 @@ class Loop
             $action->invoke($this, ...$action->getRuntimeArgs());
             $triggersToDisable[$trigger] = false;
             if(!$action->isPersistent()){
-                unset($action[$i]);
+                unset($this->loopActions[$i]);
             }
         }
         $this->loopActions = array_values($this->loopActions);
