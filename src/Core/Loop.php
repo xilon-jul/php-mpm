@@ -154,27 +154,38 @@ class Loop
             case SIGSTOP:
             case SIGCONT:
             case SIGCHLD:
-                while (($pid = pcntl_wait($status, WNOHANG | WUNTRACED | WCONTINUED, $rusage)) > 0) {
+                $i = 0;
+                while (($pid = pcntl_waitpid(-1, $status, WNOHANG | WCONTINUED | WUNTRACED, $rusage)) > 0) {
+                    ++$i;
                     $this->_handleWaitPid($pid, $status, $rusage);
+                }
+                if($i === 0){
+                    // We were called for a signal but we could not wait for the child
+                    $err = pcntl_get_last_error();
+                    switch($err){
+                        case PCNTL_ECHILD:
+                            $this->log("Cannot retrieve child process status: no child to reap status from");
+                            break;
+                        default:
+                            $this->log("Unhandled pcntl error %d", $err);
+                    }
                 }
                 break;
         }
     }
 
 
-
     private function _handleWaitPid(int $pid, string $status, array $rusage): void {
-        $this->log("Waited after process child %d - All children = (%s)", $pid, implode(',', array_map(function(ProcessInfo $c){
-            return $c->getPid();
-        }, $this->thisProcessInfo->getChildren())));
-
         $processInfo = $this->thisProcessInfo->getProcessInfo($pid);
         if(!$processInfo){
             // A loop might fork processes using proc_open or any other functions, therefor we might
-            // not have a corresponding child for the process we received the SIGCHILD for
+            // not have a corresponding child for the process we received the SIGCHLD
             $this->thisProcessInfo->addChild(new ProcessInfo($pid));
             $processInfo = $this->thisProcessInfo->getProcessInfo($pid);
         }
+        $this->log("Waited after process child %d - All children = (%s)", $pid, implode(',', array_map(function(ProcessInfo $c){
+            return $c->getPid();
+        }, $this->thisProcessInfo->getChildren())));
         if (pcntl_wifexited($status)) {
             $this->log("Pid %-5d has exited", $pid);
             $processInfo->setStatus(ProcessInfo::PROCESS_ST_EXITED, sprintf("Process exited with status: %d", $status))

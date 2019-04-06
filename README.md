@@ -14,9 +14,7 @@ You can do the following to debug a core dump :
 docker run --privileged --ulimit core=10000000 -v $(pwd):/app -w /app -ti itengo/itengo:php7.3.3-fpm-debug bash
 ```
 
-TODO:
-- Synchronization mechanism (semaphore)
-- Coalesce message option (use payload hash to discard oldest message)
-- Blocking wait for until 
+FIXES:
+- Case when one action should be called multiple timse in a dispatch 
 
 
