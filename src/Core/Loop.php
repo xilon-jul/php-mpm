@@ -204,11 +204,18 @@ class Loop
         return $this;
     }
 
-    public function registerActionForTrigger(string $triggerName, bool $persistent, bool $immediate, $callable, $forkSurviveStrategy = null): Loop {
-        $this->addAction(new LoopAction($triggerName, $persistent, $immediate, $callable, $forkSurviveStrategy));
-        return $this;
+    public function registerActionForTrigger(string $triggerName, bool $persistent, bool $immediate, $callable, $forkSurviveStrategy = null): LoopAction {
+        $action = new LoopAction($triggerName, $persistent, $immediate, $callable, $forkSurviveStrategy);
+        $this->addAction($action);
+        return $action;
     }
 
+    public function removeAction(LoopAction $action){
+        $this->loopActions = array_filter($this->loopActions, function(LoopAction $a) use($action) {
+            return $a !== $action;
+        });
+        $action = null;
+    }
 
     public function addPeriodTimer($interval, $maxExecution = -1, callable $callable): Loop
     {
