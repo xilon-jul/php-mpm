@@ -173,6 +173,7 @@ class Loop
             // A loop might fork processes using proc_open or any other functions, therefor we might
             // not have a corresponding child for the process we received the SIGCHILD for
             $this->thisProcessInfo->addChild(new ProcessInfo($pid));
+            $processInfo = $this->thisProcessInfo->getProcessInfo($pid);
         }
         if (pcntl_wifexited($status)) {
             $this->log("Pid %-5d has exited", $pid);
