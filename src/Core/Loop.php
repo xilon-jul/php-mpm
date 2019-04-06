@@ -312,7 +312,12 @@ class Loop
 
     private function _read($fd, int $what, \Event $ev, $args)
     {
+        if($what & \Event::TIMEOUT !== 0){
+            $this->log('_read timeout');
+            return;
+        }
         $socketFd = \EventUtil::getSocketFd($fd);
+        $this->log('_read from fd %-5d with event flags %d', $socketFd, $what);
         $this->readBuffers[$socketFd] = strlen($this->readBuffers[$socketFd]) > 0 ? $this->readBuffers[$socketFd] : '';
         while (true) {
             $buffer = '';

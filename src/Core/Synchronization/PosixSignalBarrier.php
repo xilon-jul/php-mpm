@@ -8,9 +8,7 @@ use Loop\Core\Synchronization\Exception\TimeoutException;
 /**
  * A simple barrier synchronization mechanism that uses a shared memory counter
  * to synchronize processes and posix blocking sigwait mechanism to get notify when the barrier gets tripped.
- * The last process to reach the barrier notifies all the others. 
- * <b>For this barrier to work, you must install a signal handler for SIGUSR2 signals, this handler should not rely on a specific behavior, and in most cases should be empty</b>
- * 
+ * The last process to reach the barrier notifies all the others.
  * Note that this object might also gets serialized and sent using IPC. The receiving process would invoked the __wakeup method
  * automatically and would be able to use the barrier as if it was created before a fork. 
  */
@@ -54,14 +52,13 @@ class PosixSignalBarrier implements BarrierInterface {
 	 */
 	private $shmSegmentSize = 8192;
 	
-
 	/**
 	 * Posix signal used to notify once the barrier gets tripped
 	 * @var integer constant
 	 */
 	private $signal = SIGUSR2;
 
-	private $enableLogger = true;
+	private $enableLogger = false;
 
 	private $barrierReached = false;
 
@@ -94,15 +91,26 @@ class PosixSignalBarrier implements BarrierInterface {
         fprintf(STDOUT, "Pid: %5d - %-100s\n", posix_getpid(), $log);
     }
 
-	private function initBarrier(){
+	private function initBarrier($reset = false){
 	    $this->barrierReached = false;
 		sem_acquire($this->semaphore);
+		if($reset){
+            shm_remove_var($this->shm, 0x1);
+            shm_remove_var($this->shm, 0x2);
+            shm_remove_var($this->shm, 0x3);
+            shm_remove_var($this->shm, 0x4);
+        }
+		// Number of process runners
 		shm_put_var($this->shm, 0x1, $this->parties);
+		// Pid of processes waiting
 		shm_put_var($this->shm, 0x2, []);
+		// Flag to determine, whether barrier is broken (shared accross process)
 		shm_put_var($this->shm, 0x3, 0);
+		// Counter holding the number signaled process
+        shm_put_var($this->shm, 0x4, 0);
 		sem_release($this->semaphore);
 	}
-	
+
 	/**
 	 * Sets the signal that would be sent to wake up processes waiting for the barrier to get tripped
 	 * @param int $signal
@@ -120,7 +128,7 @@ class PosixSignalBarrier implements BarrierInterface {
 	 */
 	public function getNumberWaiting(): int {
 		sem_acquire($this->semaphore);
-		$waiting = $this->parties - (int)shm_get_var($this->shm, 0x1);
+		$waiting = (int) shm_get_var($this->shm, 0x1);
 		sem_release($this->semaphore);
 		return (int)$waiting;
 	}
@@ -145,7 +153,8 @@ class PosixSignalBarrier implements BarrierInterface {
 		if($this->shm === null || $this->semaphore === null){
 		    throw new \RuntimeException("Cannot reset barrier. Already destroyed");
         }
-		$this->initBarrier();	
+		$this->initBarrier(true);
+		$this->log('Barrier reset ok');
 	}
 	
 	/**
@@ -154,33 +163,48 @@ class PosixSignalBarrier implements BarrierInterface {
 	 */
 	public function await(int $timeout = 0): void {
 	    if($this->barrierReached){
-	        $this->log('Cant await after already reached or broken barrier. Reset it to re-use');
-	        return;
+	       $waitCond = shm_has_var($this->shm, 0x1);
+	       $this->log('Waiting for barrier to be reset');
+	       $guard = 5; $i = 0;
+	       while(!$waitCond){
+	           usleep(100000);
+	           if($i++ === $guard){
+	               $this->log('Bug we have avoided infinite loop');
+	               break;
+               }
+           }
+           if(!$waitCond){
+                $this->log('Cant await after already reached or broken barrier. Reset it to re-use');
+                return;
+           }
+           $this->log('Ok, barrier reset');
+           $this->barrierReached = false;
         }
 	    $this->log('await() after barrier');
 		if($this->isBroken()){
 			throw new BrokenBarrierException("Barrier is broken. Cannot reach until reset.");
 		}
 		sem_acquire($this->semaphore);
+		$this->log("Semaphore acquired");
 		// A new process reached the barrier, decrement counter
 		$count = shm_get_var($this->shm, 0x1);
 		shm_put_var($this->shm, 0x1, --$count);
 		$parties = shm_get_var($this->shm, 0x2);
 		if($count === 0){
 			// Barrier tripped
-			sem_release($this->semaphore);
             $this->log('All process have joined the barrier');
             $this->notifyAll($parties);
-			shm_detach($this->shm);
 			$this->barrierReached = true;
+            sem_release($this->semaphore);
 		}
 		else {
 			// Somes processes have not yet terminated, make the current process sleep until it gets notified
-            $this->log('Waiting at barrier');
+            $this->log('Waiting at barrier with count = %d', $count);
 			$parties[] =  posix_getpid();
 			shm_put_var($this->shm, 0x2, $parties);
 			sem_release($this->semaphore);
 			$siginfo = [];
+            $this->log('Waiting signal');
 			if($timeout !== 0){
 				$ret = pcntl_sigtimedwait(array($this->signal), $siginfo, $timeout);
 			}
@@ -198,29 +222,56 @@ class PosixSignalBarrier implements BarrierInterface {
 				sem_release($this->semaphore);
                 if(false === $parties){
                     $this->log('Buggy, barrier has broken or is reached already, did you forget to reset it ?...');
-                    $this->barrierReached = true;
-                    return;
+                    $this->updateUnblockCounter();
+                    throw new BrokenBarrierException('Something went wrong');
                 }
-                else {
-                    $this->notifyAll($parties);
-                }
-				if($err === PCNTL_EINTR){
+                $this->notifyAll($parties);
+                $this->updateUnblockCounter();
+                if($err === PCNTL_EINTR){
 					throw new InterruptedException(sprintf("Interrupted system call %s", 'pcntl_sigtimedwait'));
 				}
 				throw new TimeoutException($timeout);
 			}
 			else {
 			    // We have terminated waiting for the barrier signal (means either reached or broken)
-			    $this->log('Barrier reached or broken, see next log');
+                // This process stills needs to access the shared memory to check if the barrier is broken
+			    $this->log('Got unblocked barrier tripped');
 			    $this->barrierReached = true;
 				// The process might exit the blocking call because one process has raised an exception (barrier is broken), check the shared memomy variable
                 if($this->isBroken()){
-                    $this->log('Barrier is broken');
+                    $this->log('Unblocked due to broken barrier');
+                    $this->updateUnblockCounter();
 					throw new BrokenBarrierException("Process woke up due to broken barrier");
 				}
+                $this->updateUnblockCounter();
 			}
 		}
+		// Reset the barrier if await count
 	}
+
+	private function updateUnblockCounter(): void {
+	    $this->log('updateUnblockCounter()');
+        sem_acquire($this->semaphore);
+        $unblocked = shm_get_var($this->shm, 0x4);
+        shm_put_var($this->shm, 0x4, ++$unblocked);
+        $waiting = shm_get_var($this->shm, 0x1);
+        sem_release($this->semaphore);
+        $this->log('Update unblocked by signal counter to %d', $unblocked);
+        $this->log('Number of parties still waiting %d', $waiting);
+        $this->autoReset();
+    }
+
+	private function autoReset(): void {
+        $this->log('autoReset()');
+        sem_acquire($this->semaphore);
+        $nbUnblockedProcessed = shm_get_var($this->shm, 0x4);
+        sem_release($this->semaphore);
+        // Unblocked process is the number of parties minus 1
+        if($nbUnblockedProcessed === ($this->parties - 1)){
+            $this->log("Last process quitting barrier, auto reset barrier");
+            $this->reset();
+        }
+    }
 
 	/**
 	 * Exclusive read on a shared memory variable indicating whether the barrier is broken
@@ -229,6 +280,7 @@ class PosixSignalBarrier implements BarrierInterface {
 	private function isBroken(): bool {
 		if(false === sem_acquire($this->semaphore)){
             // FIXME: handle this edge case when first process after await() closes the resources due to destruct
+            $this->log('Bug, cant acquire semaphore to check if broken');
         }
 		$broken = (bool) shm_get_var($this->shm, 0x3);
 		sem_release($this->semaphore);
@@ -282,7 +334,7 @@ class PosixSignalBarrier implements BarrierInterface {
 	 */
 	public function __sleep(){
 		$this->detach();
-		return array('parties', 'key', 'tmpfile', 'shmSegmentSize', 'signal');
+		return array('parties', 'key', 'tmpfile', 'shmSegmentSize', 'signal', 'enableLogger', 'barrierReached');
 	}
 
 
