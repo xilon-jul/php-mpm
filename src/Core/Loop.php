@@ -582,8 +582,6 @@ class Loop
         for($i = 0; $i < $nbActions; $i++){
             $action = $this->loopActions[$i];
             $trigger = $action->trigger();
-            // $this->log("Trigger: %s", $trigger);
-            // $this->log("Triggers: (%s)", implode(',', array_keys(array_filter($this->triggers, function($flag){ return $flag; }))));
             if(!array_key_exists($cpid, $this->triggers) || !array_key_exists($trigger, $this->triggers[$cpid]) || $this->triggers[posix_getpid()][$trigger] === false){
                 // Do nothing and keep action in stack
                 continue;
@@ -613,6 +611,22 @@ class Loop
     }
 
     /**
+     * Closes stdin, stdout and stderr file descriptor.
+     * Note that if loggin is enabled this functions will not close any fd
+     * @return Loop
+     */
+    public function closeStandardFileDescriptors(): Loop {
+        if($this->enableLogger){
+            $this->log('Warning, cannot close standard fds if logging is enabled');
+            return $this;
+        }
+        fclose(STDIN);
+        fclose(STDOUT);
+        fclose(STDERR);
+        return $this;
+    }
+
+    /**
      * Detach this process from its controlling terminal.
      */
     public function detach(): Loop
@@ -621,7 +635,11 @@ class Loop
         return $this;
     }
 
-
+    /**
+     * Sets the process exit code
+     * @param int $exitCode
+     * @return Loop
+     */
     public function setExitCode(int $exitCode = 0): Loop {
         if($exitCode < 0 || $exitCode >= 255){
             throw new \RuntimeException("Exit code must be between 0 and 254. 255 is reserved for PHP");
@@ -637,6 +655,9 @@ class Loop
         });
     }
 
+    /**
+     * Starts the daemon loop
+     */
     public function loop(): void
     {
         if($this->thisProcessInfo->isRootOfHierarchy()){

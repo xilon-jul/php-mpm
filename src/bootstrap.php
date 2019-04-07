@@ -15,9 +15,9 @@ $loop->setLoggingEnabled(false);
 
 
 $barrier = new PosixSignalBarrier(2);
-//$barrier->setLoggingEnabled(true);
+$barrier->setLoggingEnabled(true);
 
-$loop->registerActionForTrigger(LoopAction::LOOP_ACTION_PROCESS_TERMINATED, false, false, function(Loop $loop, ProcessInfo $info) use($barrier) {
+$loop->registerActionForTrigger(LoopAction::LOOP_ACTION_PROCESS_TERMINATED, false, false, function(Loop $loop, ProcessInfo $info, ...$args) use($barrier) {
     fprintf(STDOUT, "Action on termination\n");
     $barrier = null;
 });

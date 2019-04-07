@@ -281,6 +281,7 @@ class PosixSignalBarrier implements BarrierInterface {
 		if(false === sem_acquire($this->semaphore)){
             // FIXME: handle this edge case when first process after await() closes the resources due to destruct
             $this->log('Bug, cant acquire semaphore to check if broken');
+            throw new BrokenBarrierException("Barrier was probably destroyed by another process");
         }
 		$broken = (bool) shm_get_var($this->shm, 0x3);
 		sem_release($this->semaphore);

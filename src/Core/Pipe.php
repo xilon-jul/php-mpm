@@ -75,7 +75,7 @@ class Pipe
         $this->ewrite = null;
         socket_shutdown($this->fd);
         if(false === @socket_close($this->fd)){
-            fprintf(STDERR, "Could not close socket : %s", socket_last_error($this->fd));
+            // fprintf(STDERR, "Could not close socket : %s", socket_last_error($this->fd));
         }
         $this->fd = null;
     }

@@ -69,10 +69,9 @@ final class LoopAction
         return $this->immediate;
     }
 
-
     function setRuntimeArgs(...$args): void
     {
-        $this->runtimeArgs = $args;
+        $this->runtimeArgs += $args;
     }
 
     function trigger(): string
