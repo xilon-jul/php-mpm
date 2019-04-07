@@ -40,14 +40,14 @@ $loop->fork(function(Loop $childloop) use ($barrier) {
 }, 'group1');
 
 
-$loop->addPeriodTimer(1, -1, function() use($loop, $pid, $barrier) {
+$loop->addPeriodTimer(5, function() use($loop, $pid, $barrier) {
     $message = new ProcessResolutionProtocolMessage();
     //$message->getField('data')->setValue(serialize($barrier));
     $message->getField('data')->setValue("test");
     $message->getField('destination_label')->setValue('group1');
 
     $loop->submit($message);
-});
+}, 1, true);
 
 $loop->loop();
 

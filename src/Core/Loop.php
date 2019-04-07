@@ -229,19 +229,28 @@ class Loop
         $action = null;
     }
 
-    public function addPeriodTimer($interval, $maxExecution = -1, callable $callable): Loop
+    public function addPeriodTimer($interval, callable $callable, $maxExecution = -1, $startNow = false): Loop
     {
-        $ev = new \Event($this->eb, -1, \Event::TIMEOUT | \Event::PERSIST, function () use ($maxExecution, $callable, &$ev) {
+        $flags = $startNow ? \Event::TIMEOUT : \Event::TIMEOUT | \Event::PERSIST;
+        $ev = new \Event($this->eb, -1, $flags, function () use ($maxExecution, $startNow, $interval, $callable, &$ev) {
+            $this->log('Executing timer');
             static $nbExecution = 0;
             if ($nbExecution === $maxExecution) {
                 $ev->del();
                 return;
             }
+            if($startNow){
+                $ev->add($interval);
+            }
             $nbExecution++;
             call_user_func($callable, $this);
-
         });
-        $ev->add($interval);
+        if($startNow){
+            $ev->add(0);
+        }
+        else {
+            $ev->add($interval);
+        }
         $this->events[] = $ev;
         return $this;
     }
