@@ -1,6 +1,7 @@
 <?php
 namespace Loop\Core\Synchronization;
 
+use Loop\Core\Loop;
 use Loop\Core\Synchronization\Exception\BrokenBarrierException;
 use Loop\Core\Synchronization\Exception\InterruptedException;
 use Loop\Core\Synchronization\Exception\TimeoutException;
@@ -132,8 +133,17 @@ class PosixSignalBarrier implements BarrierInterface {
 		sem_release($this->semaphore);
 		return (int)$waiting;
 	}
-	
-	
+
+	public function setWorkingDirectory(string $directory): Loop {
+	    if(!is_dir($directory)){
+	        throw new \RuntimeException("No such directory $directory");
+        }
+	    if( false === chdir($directory)){
+	        throw new \RuntimeException("Cannot change working directory");
+        }
+	    return $this;
+    }
+
 	/**
 	 * (non-PHPdoc)
 	 * @see LightProcessExecutor\Synchronization.BarrierInterface::getParties()
