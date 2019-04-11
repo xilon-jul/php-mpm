@@ -69,17 +69,21 @@ final class LoopAction
         return $this->immediate;
     }
 
-    function setRuntimeArgs(...$args): void
-    {
-        $this->runtimeArgs += $args;
+    public function removeRuntimeArgs(): void {
+        $this->runtimeArgs = [];
     }
 
-    function trigger(): string
+    public function setRuntimeArgs(...$args): void
+    {
+        array_push($this->runtimeArgs, ...$args);
+    }
+
+    public function trigger(): string
     {
         return $this->trigger;
     }
 
-    function invoke(...$args): void
+    public function invoke(...$args): void
     {
         call_user_func($this->callable, ...$args);
     }

@@ -61,6 +61,9 @@ class Loop
 
     private $exitCode = 0;
 
+    /**
+     * @var int default timeout to quit loop so that it forces action to be dispatched
+     */
     private static $DEFAULT_TIMEOUT = 3;
 
     /**
@@ -174,12 +177,11 @@ class Loop
         }
     }
 
-
     private function _handleWaitPid(int $pid, string $status, array $rusage): void {
         $processInfo = $this->thisProcessInfo->getProcessInfo($pid);
         if(!$processInfo){
             // A loop might fork processes using proc_open or any other functions, therefor we might
-            // not have a corresponding child for the process we received the SIGCHLD
+            // not have a corresponding child for the process we received the SIGCHLD (eg: a see proc_open)
             $this->thisProcessInfo->addChild(new ProcessInfo($pid));
             $processInfo = $this->thisProcessInfo->getProcessInfo($pid);
         }
@@ -289,7 +291,7 @@ class Loop
             return $cond;
         });
 
-
+        $message->getField('sent_at')->setValue(time());
         // Message is not a direct message to a parent or child process
         if (count($targets) === 0) {
             $targets = $this->thisProcessInfo->getPipes();
@@ -297,13 +299,58 @@ class Loop
         foreach ($targets as $pipe) {
             $routedMessage = clone $message;
             $routedMessage->getField('previous_pid')->setValue(posix_getpid());
-             $routedMessage->getField('source_pid')->setValue(posix_getpid());
+            $routedMessage->getField('source_pid')->setValue(posix_getpid());
             $this->writeBuffers[\EventUtil::getSocketFd($pipe->getFd())][] = $this->protocolBuilder->toByteStream($routedMessage);
             ($pipe->getEwrite())->add();
         }
         return $this;
     }
 
+    /**
+     * Parses action message and coalesce any message that needs to be
+     */
+    private function _coalesceMessage(): void {
+        list($messageReceivedAction) = array_filter($this->loopActions, function(LoopAction $action) use(&$actionIndex) {
+           return $action->trigger() === LoopAction::LOOP_ACTION_MESSAGE_RECEIVED;
+        });
+
+        if(!$messageReceivedAction){
+            return;
+        }
+        // Parse runtime args starting at index 1, check protocol messag
+        // that has coalesce option set to true then hash the data payload
+        // and keep the last data payload if same hash occurs more than once
+        $args = $messageReceivedAction->getRuntimeArgs();
+        $newRuntimeArgs = [$args[0]];
+        $nbArgs = count($args);
+        $hashmap = [];
+        $this->log("Message before coalesce action message received %d", $nbArgs);
+        for($i = 1; $i < $nbArgs; $i++){
+            /**
+             * @var $argMessage ProcessResolutionProtocolMessage
+             */
+            $argMessage = $args[$i];
+            if($argMessage->getField('coalesce')->getValue() !== 1){
+                continue;
+            }
+            $hash = md5($argMessage->getField('data')->getValue());
+            $hashmap[$hash] = $argMessage;
+            $this->log("Coalesce message with hash %s", $hash);
+        }
+
+        array_walk(array_values($hashmap), function($message) use(&$newRuntimeArgs) {
+            $newRuntimeArgs[] = $message;
+        });
+        $this->log("Message after coalesce action message received %d", count($newRuntimeArgs));
+        $messageReceivedAction->removeRuntimeArgs();
+        $messageReceivedAction->setRuntimeArgs(...$newRuntimeArgs);
+    }
+
+    /**
+     * Callback invoked when the protocol has succeeded in decoding a message
+     * @param ProcessResolutionProtocolMessage $message
+     * @throws \Loop\Protocol\Exception\ProtocolException
+     */
     private function _ipcMessageHandler(ProcessResolutionProtocolMessage $message)
     {
         // Check that the message is targeted to this process based on the destination name, pid or broadcast
@@ -386,7 +433,10 @@ class Loop
             $this->readBuffers[$socketFd] .= $buffer;
         }
         try {
-            $this->protocolBuilder->read($this->readBuffers[$socketFd]);
+            while(true){
+                $this->log('Reading one message');
+                $this->protocolBuilder->read($this->readBuffers[$socketFd]);
+            }
         } catch (\Exception $e) {
             // Do nothing wait until more bytes
             $this->log("Protocol exception %s", $e->getMessage());
@@ -575,6 +625,7 @@ class Loop
 
     private function dispatchActions()
     {
+        $this->_coalesceMessage();
         /**
          * @var $action LoopAction
          */

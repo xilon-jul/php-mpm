@@ -2,6 +2,7 @@
 namespace Loop\Protocol;
 
 use Loop\Protocol\Field\BitField;
+use Loop\Protocol\Field\ByteField;
 use Loop\Protocol\Field\Int32Field;
 use Loop\Protocol\Field\VariableBytesField;
 use Loop\Protocol\Field\WrapProtocolField;
@@ -13,6 +14,10 @@ class ProcessResolutionProtocolMessage extends ProtocolMessage {
     {
         parent::__construct();
         $this->addField((new VariableBytesField())->setName('destination_label'));
+        $this->addField((new Int32Field())->setName("sent_at"));
+        $this->addField((new ByteField())->setName("coalesce")->setRequired(
+            false
+        ));
         $this->addField((new Int32Field())->setName('destination_pid'));
         $this->addField((new Int32Field())->setName('broadcast')
             ->setRequired(false)
