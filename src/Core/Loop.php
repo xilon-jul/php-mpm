@@ -691,7 +691,17 @@ class Loop
      */
     public function detach(): Loop
     {
-        posix_setsid();
+        $pid = pcntl_fork();
+        if($pid < 0){
+            throw new \RuntimeException("Cannot fork");
+        }
+        if($pid > 0){
+            // Parent
+            exit(0);
+        }
+        if(-1 === posix_setsid()){
+            throw new \RuntimeException("Cannot be a session leader");
+        }
         return $this;
     }
 
