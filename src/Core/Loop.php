@@ -2,6 +2,7 @@
 
 namespace Loop\Core;
 
+use http\Exception\RuntimeException;
 use Loop\Core\Action\LoopAction;
 use Loop\Core\Event\EventInfo;
 use Loop\Core\Event\IPCSocketRoute;
@@ -308,6 +309,8 @@ class Loop
 
     /**
      * Parses action message and coalesce any message that needs to be
+     * A message is said to be coaslcent if it has its coalesce field set to true.
+     * When so, only the last message if they have the same signature will be triggered.
      */
     private function _coalesceMessage(): void {
         list($messageReceivedAction) = array_filter($this->loopActions, function(LoopAction $action) use(&$actionIndex) {
@@ -611,6 +614,12 @@ class Loop
         return posix_getpid();
     }
 
+
+    /**
+     * Register one or more actions. Registering an action does not mean it will
+     * get triggered. The triggering of an action is based on the trigger flag
+     * @param LoopAction ...$action actions to register
+     */
     private function addAction(LoopAction ...$action): void
     {
         if (count($action) === 0) {
@@ -619,11 +628,22 @@ class Loop
         array_push($this->loopActions, ...$action);
     }
 
+    /**
+     * Mark an action to be triggered or not on next dispatch loop
+     * @param string $triggerName the action trigger name
+     * @param bool $shouldTrigger whether the action should be triggered on next event loop run
+     */
     private function setTriggerFlag(string $triggerName, bool $shouldTrigger){
         $this->triggers[posix_getpid()][$triggerName] = $shouldTrigger;
     }
 
-    private function dispatchActions()
+
+    /**
+     * Dispatch actions is executed during the event loop.
+     * It taverses all registered actions and triggers them. You can register actions
+     * using @see addAction(LoopAction ...$action)
+     */
+    private function dispatchActions(): void
     {
         $this->_coalesceMessage();
         /**
@@ -661,6 +681,7 @@ class Loop
         $this->thisProcessInfo->setAvailable(true);
     }
 
+
     /**
      * Gets this process info
      * @return ProcessInfo the process readable information
@@ -687,7 +708,22 @@ class Loop
     }
 
     /**
-     * Detach this process from its controlling terminal.
+     * Changes this process working directory to $directory
+     * @param string $directory the directory
+     * @return Loop this loop instance
+     */
+    public function setWorkingDirectory(string $directory): Loop {
+        if(!is_dir($directory)){
+            throw new \RuntimeException("No such directory $directory");
+        }
+        if( false === chdir($directory)){
+            throw new \RuntimeException("Cannot change working directory");
+        }
+        return $this;
+    }
+
+    /**
+     * Detach this process from its controlling terminal and make it a session leader.
      */
     public function detach(): Loop
     {
@@ -706,7 +742,7 @@ class Loop
     }
 
     /**
-     * Sets the process exit code
+     * Sets this process exit code
      * @param int $exitCode
      * @return Loop
      */
@@ -718,7 +754,11 @@ class Loop
         return $this;
     }
 
-    private function shutdown(){
+    /**
+     * Shuts down the executor and all of its children by sending a SIGTERM signal.
+     * Note that children will continue processing loop actions before shutting down.
+     */
+    private function shutdown(): void {
         array_walk($this->getProcessInfo()->getChildren(), function(ProcessInfo $childInfo){
             $this->log("Sending SIGTERM to %-5d", $childInfo->getPid());
             posix_kill($childInfo->getPid(), SIGTERM);

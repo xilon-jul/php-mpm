@@ -31,6 +31,22 @@ final class LoopAction
     private $runtimeArgs = [];
 
 
+    /**
+     * LoopAction constructor.
+     * @param string $trigger the trigger name one of
+     * @see LoopAction::LOOP_ACTION_BEFORE_DISPATCH
+     * @see LoopAction::LOOP_ACTION_PROCESS_STOPPED
+     * @see LoopAction::LOOP_ACTION_PROCESS_CONTINUED
+     * @see LoopAction::LOOP_ACTION_MESSAGE_RECEIVED
+     * @see LoopAction::LOOP_ACTION_PROCESS_TERMINATED
+     * @see LoopAction::LOOP_ACTION_PROCESS_CHILD_TERMINATED
+     * @see LoopAction::LOOP_ACTION_PROCESS_ORPHANED
+     * @see LoopAction::LOOP_ACTION_PROCESS_CHANNEL_CLOSED
+     * @param bool $persistent should this action put back into dispatch queue on next loop run
+     * @param bool $immediate
+     * @param $callable
+     * @param null $surviveAcrossForkCallable
+     */
     public function __construct(
         string $trigger,
         bool $persistent,
@@ -45,7 +61,12 @@ final class LoopAction
         $this->immediate = $immediate;
     }
 
-
+    /**
+     * If true, this action will survive across fork. otherwise, it will be dropped
+     * for any children
+     * @param Loop $loopContext
+     * @return bool
+     */
     public function survivesAcrossFork(Loop $loopContext): bool
     {
         if($this->surviveAcrossForkCallable === null){
@@ -54,6 +75,11 @@ final class LoopAction
         return call_user_func($this->surviveAcrossForkCallable, $loopContext);
     }
 
+    /**
+     * A persistent action is an action that when run is put back into the action queue to
+     * be run again on next dispatch loop. Dont forget that an action is run only if it has to be triggered.
+     * @return bool true if it should persist
+     */
     public function isPersistent(): bool
     {
         return $this->persistent;
@@ -64,6 +90,12 @@ final class LoopAction
         return $this->runtimeArgs;
     }
 
+    /**
+     * Immediate actions ask the main loop to stop processing any events it may have except
+     * the current one the loop is executing. It allows to ensure this action will run in less time
+     * that usual.
+     * @return bool
+     */
     public function isImmediate(): bool
     {
         return $this->immediate;

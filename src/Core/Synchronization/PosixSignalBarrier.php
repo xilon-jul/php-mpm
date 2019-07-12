@@ -134,15 +134,6 @@ class PosixSignalBarrier implements BarrierInterface {
 		return (int)$waiting;
 	}
 
-	public function setWorkingDirectory(string $directory): Loop {
-	    if(!is_dir($directory)){
-	        throw new \RuntimeException("No such directory $directory");
-        }
-	    if( false === chdir($directory)){
-	        throw new \RuntimeException("Cannot change working directory");
-        }
-	    return $this;
-    }
 
 	/**
 	 * (non-PHPdoc)
