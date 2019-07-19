@@ -2,7 +2,6 @@
 
 namespace Loop\Core;
 
-use http\Exception\RuntimeException;
 use Loop\Core\Action\LoopAction;
 use Loop\Core\Event\EventInfo;
 use Loop\Core\Event\IPCSocketRoute;
@@ -11,6 +10,7 @@ use Loop\Core\Listener\LoopEventListener;
 use Loop\Protocol\Factory\ProtocolMessageFactory;
 use Loop\Protocol\ProcessResolutionProtocolMessage;
 use Loop\Protocol\ProtocolBuilder;
+use Loop\Protocol\ProtocolMessage;
 
 pcntl_async_signals(true);
 
@@ -61,6 +61,17 @@ class Loop
     private $eb;
 
     private $exitCode = 0;
+
+    /**
+     * Inotify
+     */
+    private $inotifyInit = null;
+
+    /**
+     * @var $inotifyEvent \Event
+     */
+    private $inotifyEvent;
+    private $inotifyWatches = [];
 
     /**
      * @var int default timeout to quit loop so that it forces action to be dispatched
@@ -214,6 +225,39 @@ class Loop
         }
     }
 
+
+    public function removeFileWatch(string $pathname){
+        $fd = null;
+        $this->inotifyWatches = array_filter($this->inotifyWatches, function(array $watch) use ($pathname, &$fd) {
+           if($watch['pathname'] === $pathname){
+               $fd = $watch['fd'];
+               return false;
+           }
+           return true;
+        });
+        if($fd !== null){
+            $this->log('Remove inotify watch with fd %s', $fd);
+            inotify_rm_watch($this->inotifyInit, $fd);
+        }
+    }
+
+    public function addFileWatch(string $pathname, \Closure $callback): Loop
+    {
+        if ($this->inotifyInit === null) {
+            $this->inotifyInit = inotify_init();
+            $this->inotifyEvent = new \Event($this->eb, $this->inotifyInit, \Event::READ | \Event::PERSIST, function ($fd, int $what, $args) use ($callback) {
+                $this->registerActionForTrigger(LoopAction::LOOP_ACTION_INOTIFY_EVENT, true, false, function(Loop $loop) use($callback, $fd) {
+                    // $this->log('Register action for watch')
+                    $callback(inotify_read($fd));
+                });
+                $this->setTriggerFlag(LoopAction::LOOP_ACTION_INOTIFY_EVENT, true);
+            });
+            $this->inotifyEvent->add();
+        }
+        $this->inotifyWatches[] = ['pathname' => $pathname, 'fd' => inotify_add_watch($this->inotifyInit, $pathname, IN_ALL_EVENTS)];
+        return $this;
+    }
+
     public function setLoggingEnabled(bool $enabled): Loop {
         $this->enableLogger = $enabled;
         return $this;
@@ -278,6 +322,16 @@ class Loop
         self::$DEFAULT_TIMEOUT = $timeout;
     }
 
+
+    /**
+     * This method is for IPC accross the process tree. You can send message
+     * to one ore more processes. You must install an handler / action for the trigger name
+     * (LoopAction::LOOP_ACTION_MESSAGE_RECEIVED) to handle the message
+     * @see LoopAction::LOOP_ACTION_MESSAGE_RECEIVED
+     * @param ProcessResolutionProtocolMessage $message
+     * @return Loop
+     * @throws \Loop\Protocol\Exception\ProtocolException
+     */
     public function submit(ProcessResolutionProtocolMessage $message): Loop
     {
         if (!$message->getField('destination_pid')->getValue() && !$message->getField('destination_label')->getValue()) {
@@ -388,21 +442,39 @@ class Loop
         };
     }
 
-    private function _read($fd, int $what, \Event $ev, $args)
+    private function _readStdin($fd, int $what, \Event $ev, $callback){
+        stream_set_blocking($fd, false);
+        $this->log("_read stdin with fd " . $fd);
+        while((($bytes = fread($fd, 8092)) !== false)){
+            $this->log("Reads bytes = " . $bytes.PHP_EOL);
+            if(strlen($bytes) === 0){
+                //$this->log("Breaking non blocking regular file read");
+                $ev->del();
+                $ev->add(1);
+                break;
+            }
+            $callback($bytes, $this);
+        }
+    }
+
+    private function _readSocket($fd, int $what, \Event $ev, $args)
     {
-        if($what & \Event::TIMEOUT !== 0){
+        if($what & \Event::TIMEOUT){
             $this->log('_read timeout');
             return;
         }
-        $socketFd = \EventUtil::getSocketFd($fd);
-        $this->log('_read from fd %-5d with event flags %d', $socketFd, $what);
-        $this->readBuffers[$socketFd] = strlen($this->readBuffers[$socketFd]) > 0 ? $this->readBuffers[$socketFd] : '';
+        $intFd = \EventUtil::getSocketFd($fd);
+        $this->log('_read from fd %-5d with event flags %d', $intFd, $what);
+        $this->readBuffers[$intFd] = strlen($this->readBuffers[$intFd]) > 0 ? $this->readBuffers[$intFd] : '';
         while (true) {
             $buffer = '';
             if (false === ($bytes = @socket_recv($fd, $buffer, 8092, 0))) {
                 $errnum = socket_last_error($fd);
                 $this->log("Socket error: %d - %s", $errnum, socket_strerror($errnum));
                 switch ($errnum) {
+                    case 0:
+                        $this->log("Socket recv has failed but error code is success");
+                        break 2;
                     case SOCKET_EAGAIN:
                         break 2;
                     case SOCKET_ECONNRESET:
@@ -413,16 +485,17 @@ class Loop
             }
             // Connection closed
             if ($bytes === 0) {
-                $this->log("Connection closed with fd %-5d bound to pid %-5d", $socketFd, $args);
-
+                $this->log("No bytes....");
+                $pid = $this->thisProcessInfo->getPidBoundToFd($fd);
+                $this->log("Connection closed with fd %-5d bound to pid %-5d", $intFd, $pid);
                 // Case whenever the pipes that gets closed is the only one
-                if($this->thisProcessInfo->countPipes() === 1 && $this->thisProcessInfo->hasPipe($args)) {
+                if($this->thisProcessInfo->countPipes() === 1 && $this->thisProcessInfo->hasPipe($pid)) {
                     $this->log("Last pipe broken");
                     $this->setTriggerFlag(LoopAction::LOOP_ACTION_PROCESS_TERMINATED, true);
                     $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_TERMINATED, $this->thisProcessInfo);
                 }
                 $this->setTriggerFlag(LoopAction::LOOP_ACTION_PROCESS_CHANNEL_CLOSED, true);
-                $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_CHANNEL_CLOSED, $args);
+                $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_CHANNEL_CLOSED, $pid);
 
                 if (!$this->thisProcessInfo->isRootOfHierarchy() && ($ppid = posix_getppid()) <= 1) {
                     $this->log("Became orphan: parent process = %-5d", $ppid);
@@ -432,18 +505,39 @@ class Loop
                 }
                 return;
             }
-            $this->log("Read %d bytes from fd %d", $bytes, $fd);
-            $this->readBuffers[$socketFd] .= $buffer;
+            $this->log("Read %d bytes from fd %d", strlen($buffer), $fd);
+            $this->readBuffers[$intFd] .= $buffer;
         }
         try {
             while(true){
                 $this->log('Reading one message');
-                $this->protocolBuilder->read($this->readBuffers[$socketFd]);
+                $this->protocolBuilder->read($this->readBuffers[$intFd]);
             }
         } catch (\Exception $e) {
             // Do nothing wait until more bytes
             $this->log("Protocol exception %s", $e->getMessage());
         }
+    }
+
+
+    /**
+     * Register a callback when bytes are received from this fd. The callback <b>MUST</b>
+     * not block when a message is ready, instead it must do the following :
+     * <code>
+     * $thisLoop->prepareActionForRuntime(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, <YOUR DATA>);
+     * $thisLoop->setTriggerFlag(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true);
+     * </code>
+     * @param \Closure $callblack function(& $bytes, Loop $thisLoop) must drain the bytes read
+     * @param $fd the fd to read from
+     * @return Loop this instance
+     */
+    public function addStdinReadCallback(\Closure $callblack, /* mixed */$fd): Loop {
+        $flags = \Event::READ | \Event::PERSIST;
+        $read = new \Event($this->eb, $fd, $flags, function ($fd, int $what, $args) use (&$read) {
+            $this->_readStdin($fd, $what, $read, $args[0]);
+        }, $callblack);
+        $read->add(1);
+        return $this;
     }
 
     private function _write($fd, int $what, \Event $ev, $args)
@@ -507,13 +601,20 @@ class Loop
         return $this;
     }
 
-    private function prepareActionForRuntime(string $triggerName, ...$args){
+    /**
+     * Parametrized each action by their name, which means that all occurences of a trigger would be prepared
+     * with the arguments given
+     * @param string $triggerName
+     * @param mixed ...$args
+     */
+    public function prepareActionForRuntime(string $triggerName, ...$args){
         /**
          * @var $action LoopAction
          */
         array_walk($this->loopActions, function(LoopAction $action) use($triggerName, $args) {
            if($action->trigger() !== $triggerName) return;
            $action->setRuntimeArgs(...$args);
+           $this->log("Settings args %s / %s for trigger %s ", implode(',', $args), implode(',', $action->getRuntimeArgs()), $triggerName);
            if($action->isImmediate()){
                $this->eb->stop();
            }
@@ -558,8 +659,8 @@ class Loop
             socket_close($pairs[1]);
             $read = null;
             $read = new \Event($this->eb, $pairs[0], \Event::READ | \Event::PERSIST, function ($fd, int $what, $args) use (&$read) {
-                $this->_read($fd, $what, $read, $args);
-            }, $pid);
+                $this->_readSocket($fd, $what, $read, $args);
+            });
             $write = new \Event($this->eb, $pairs[0], \Event::WRITE, function ($fd, int $what, $args) use (&$write) {
                 $this->_write($fd, $what, $write, $args);
             }, $pid);
@@ -594,12 +695,12 @@ class Loop
             $this->_initProtocolBuilder();
             $this->log("Socket to parent : %d", \EventUtil::getSocketFd($pairs[1]));
             $read = new \Event($this->eb, $pairs[1], \Event::READ | \Event::PERSIST, function ($fd, int $what, $args) use (&$read) {
-                $this->_read($fd, $what, $read, $args);
-            }, posix_getppid());
+                $this->_readSocket($fd, $what, $read, $args);
+            });
             $read->add(self::$DEFAULT_TIMEOUT);
             $write = new \Event($this->eb, $pairs[1], \Event::WRITE, function ($fd, int $what, $args) use (&$write) {
                 $this->_write($fd, $what, $write, $args);
-            }, posix_getppid());
+            });
             $pInfo->addPipe(
                 new Pipe(posix_getppid(), $pairs[1], $read, $write, ...$pInfo->getParentProcessInfo()->getLabels())
             );
@@ -633,7 +734,7 @@ class Loop
      * @param string $triggerName the action trigger name
      * @param bool $shouldTrigger whether the action should be triggered on next event loop run
      */
-    private function setTriggerFlag(string $triggerName, bool $shouldTrigger){
+    public function setTriggerFlag(string $triggerName, bool $shouldTrigger){
         $this->triggers[posix_getpid()][$triggerName] = $shouldTrigger;
     }
 
@@ -668,6 +769,7 @@ class Loop
             }
             $this->log("Total: %-3d => Dispatch action for trigger: %s", $nbActions, $trigger);
             $action->invoke($this, ...$action->getRuntimeArgs());
+            $action->removeRuntimeArgs();
             $triggersToDisable[$trigger] = false;
             if(!$action->isPersistent()){
                 unset($this->loopActions[$i]);

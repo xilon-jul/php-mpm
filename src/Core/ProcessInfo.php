@@ -69,6 +69,17 @@ class ProcessInfo {
         return $this;
     }
 
+
+    public function getPidBoundToFd($fd): ?int {
+        /**
+         * @var $targetPipe Pipe
+         */
+        $targetPipe = array_shift(array_filter($this->pipes, function(Pipe $pipe) use($fd) {
+            return $pipe->getFd() === $fd;
+        }));
+        return $targetPipe ? $targetPipe->getPid() : null;
+    }
+
     /**
      * @param bool $isRootOfHierarchy
      */
