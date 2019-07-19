@@ -241,6 +241,12 @@ class Loop
         }
     }
 
+    /**
+     * Adds a file to be watch for any event (see inotify)
+     * @param string $pathname the file or directory to be watched
+     * @param \Closure $callback received this pool instance and the watch event array (native array from inotify lib)
+     * @return Loop this loop instance
+     */
     public function addFileWatch(string $pathname, \Closure $callback): Loop
     {
         if ($this->inotifyInit === null) {
@@ -248,7 +254,7 @@ class Loop
             $this->inotifyEvent = new \Event($this->eb, $this->inotifyInit, \Event::READ | \Event::PERSIST, function ($fd, int $what, $args) use ($callback) {
                 $this->registerActionForTrigger(LoopAction::LOOP_ACTION_INOTIFY_EVENT, true, false, function(Loop $loop) use($callback, $fd) {
                     // $this->log('Register action for watch')
-                    $callback(inotify_read($fd));
+                    $callback($loop, inotify_read($fd));
                 });
                 $this->setTriggerFlag(LoopAction::LOOP_ACTION_INOTIFY_EVENT, true);
             });
@@ -442,21 +448,6 @@ class Loop
         };
     }
 
-    private function _readStdin($fd, int $what, \Event $ev, $callback){
-        stream_set_blocking($fd, false);
-        $this->log("_read stdin with fd " . $fd);
-        while((($bytes = fread($fd, 8092)) !== false)){
-            $this->log("Reads bytes = " . $bytes.PHP_EOL);
-            if(strlen($bytes) === 0){
-                //$this->log("Breaking non blocking regular file read");
-                $ev->del();
-                $ev->add(1);
-                break;
-            }
-            $callback($bytes, $this);
-        }
-    }
-
     private function _readSocket($fd, int $what, \Event $ev, $args)
     {
         if($what & \Event::TIMEOUT){
@@ -517,27 +508,6 @@ class Loop
             // Do nothing wait until more bytes
             $this->log("Protocol exception %s", $e->getMessage());
         }
-    }
-
-
-    /**
-     * Register a callback when bytes are received from this fd. The callback <b>MUST</b>
-     * not block when a message is ready, instead it must do the following :
-     * <code>
-     * $thisLoop->prepareActionForRuntime(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, <YOUR DATA>);
-     * $thisLoop->setTriggerFlag(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true);
-     * </code>
-     * @param \Closure $callblack function(& $bytes, Loop $thisLoop) must drain the bytes read
-     * @param $fd the fd to read from
-     * @return Loop this instance
-     */
-    public function addStdinReadCallback(\Closure $callblack, /* mixed */$fd): Loop {
-        $flags = \Event::READ | \Event::PERSIST;
-        $read = new \Event($this->eb, $fd, $flags, function ($fd, int $what, $args) use (&$read) {
-            $this->_readStdin($fd, $what, $read, $args[0]);
-        }, $callblack);
-        $read->add(1);
-        return $this;
     }
 
     private function _write($fd, int $what, \Event $ev, $args)
@@ -607,7 +577,7 @@ class Loop
      * @param string $triggerName
      * @param mixed ...$args
      */
-    public function prepareActionForRuntime(string $triggerName, ...$args){
+    private function prepareActionForRuntime(string $triggerName, ...$args){
         /**
          * @var $action LoopAction
          */
