@@ -27,20 +27,36 @@ $exampleMessage->getField('destination_label')->setValue('group');
 $exampleMessage->getField('data')->setValue('Test message');
 
 $loop->addPeriodTimer(3, function(Loop $loop) use($exampleMessage) {
-   $loop->submit($exampleMessage);
-}, -1, true);
+    $loop->submit($exampleMessage);
+}, 1, true);
 
-
-$loop->registerActionForTrigger(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true, false, function(Loop $loop, ...$messages){
-    // fprintf(STDOUT, 'In process %5d : received %d messages %s', $loop->getProcessInfo()->getPid(), count($messages), PHP_EOL);
-    /**
-     * @var $m ProcessResolutionProtocolMessage
-     */
+// Register this action for master process only
+$loop->registerActionForTrigger(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true, false, function(Loop $loop, ...$messages) {
     foreach($messages as $m){
-        fprintf(STDOUT, 'In process %5d : Message data : %s %s', $loop->getProcessInfo()->getPid(), $m->getField('data')->getValue(), PHP_EOL);
+        fprintf(STDOUT, 'In pid: %5d - Received back message: %s from %5d %s', $loop->getProcessInfo()->getPid(), $m->getField('data')->getValue(), $m->getField('source_pid')->getValue(), PHP_EOL);
     }
+}, function(){
+    return false;
 });
 
+// This action is registered for all processes
+$loop->registerActionForTrigger(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true, false, function(Loop $loop, ...$messages){
+    if($loop->getProcessInfo()->isRootOfHierarchy()){
+
+        return;
+    }
+    fprintf(STDOUT, 'Processing message in process %5d %s', $loop->getProcessInfo()->getPid(), PHP_EOL);
+    /**
+     * @var m ProcessResolutionProtocolMessage
+     */
+    $pong = new ProcessResolutionProtocolMessage();
+    foreach($messages as $m){
+        $pong->getField('destination_pid')->setValue($m->getField('source_pid')->getValue());
+        $pong->getField('data')->setValue('Pong : ' . $m->getField('data')->getValue());
+        $loop->submit($pong);
+    }
+
+});
 
 $loop->fork(function($loop){
     $loop->fork(null, 'group');

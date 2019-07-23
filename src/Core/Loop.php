@@ -124,6 +124,7 @@ class Loop
             true,
             true,
             function(Loop $loop, $pid){
+                $loop->log('Free pipe for pid %-5d', $pid);
                 $loop->getProcessInfo()->freePipe($pid);
             }
         ));
@@ -397,7 +398,8 @@ class Loop
             $routedMessage = clone $message;
             $routedMessage->getField('previous_pid')->setValue(posix_getpid());
             $routedMessage->getField('source_pid')->setValue(posix_getpid());
-            $this->writeBuffers[\EventUtil::getSocketFd($pipe->getFd())][] = $this->protocolBuilder->toByteStream($routedMessage);
+            $fdNumber = (int) sprintf('%d', $pipe->getFd());
+            $this->writeBuffers[$fdNumber][] = $this->protocolBuilder->toByteStream($routedMessage);
             ($pipe->getEwrite())->add();
         }
         return $this;
@@ -471,7 +473,7 @@ class Loop
             }
         }
         // Message is a broadcast or targeted to another process, send it to any route except the route where it comes from
-        $this->log("Message needs to be routed elsewhere");
+        $this->log("Message needs to be routed elsewhere %s / %s", $destinationPID, $destinationLabel);
         foreach ($this->thisProcessInfo->getPipes() as $pipe) {
             if ($pipe->getPid() === $message->getField('previous_pid')->getValue()) {
                 continue;
@@ -479,7 +481,8 @@ class Loop
 
             $routedMessage = clone $message;
             $routedMessage->getField('previous_pid')->setValue(posix_getpid());
-            $this->writeBuffers[\EventUtil::getSocketFd($pipe->getFd())][] = $this->protocolBuilder->toByteStream($routedMessage);
+            $fdNumber = (int) sprintf('%d', $pipe->getFd());
+            $this->writeBuffers[$fdNumber][] = $this->protocolBuilder->toByteStream($routedMessage);
             ($pipe->getEwrite())->add();
         };
     }
@@ -487,22 +490,24 @@ class Loop
     private function _readSocket($fd, int $what, \Event $ev, $args)
     {
         if($what & \Event::TIMEOUT){
-            $this->log('_read timeout');
+            // $this->log('_read timeout');
             return;
         }
-        $intFd = \EventUtil::getSocketFd($fd);
-        $this->log('_read from fd %-5d with event flags %d', $intFd, $what);
+        $intFd = (int) sprintf('%d', $fd);
+        $this->log('_read from fd %d with event flags %d', $fd, $what);
         $this->readBuffers[$intFd] = strlen($this->readBuffers[$intFd]) > 0 ? $this->readBuffers[$intFd] : '';
         while (true) {
             $buffer = '';
             if (false === ($bytes = @socket_recv($fd, $buffer, 8092, 0))) {
                 $errnum = socket_last_error($fd);
+                $this->readBuffers[$intFd] .= $buffer;
                 $this->log("Socket error: %d - %s", $errnum, socket_strerror($errnum));
                 switch ($errnum) {
                     case 0:
                         $this->log("Socket recv has failed but error code is success");
                         break 2;
                     case SOCKET_EAGAIN:
+                        $this->log("Socket egain");
                         break 2;
                     case SOCKET_ECONNRESET:
                         break;
@@ -510,6 +515,7 @@ class Loop
                         throw new \RuntimeException("Unhandled socket error");
                 }
             }
+            $this->readBuffers[$intFd] .= $buffer;
             // Connection closed
             if ($bytes === 0) {
                 $this->log("No bytes....");
@@ -533,12 +539,12 @@ class Loop
                 return;
             }
             $this->log("Read %d bytes from fd %d", strlen($buffer), $fd);
-            $this->readBuffers[$intFd] .= $buffer;
         }
         try {
+            $this->log('Try read from protocol message with buffer: %s', $this->readBuffers[$intFd]);
             while(true){
-                $this->log('Reading one message');
                 $this->protocolBuilder->read($this->readBuffers[$intFd]);
+                $this->log('Message read');
             }
         } catch (\Exception $e) {
             // Do nothing wait until more bytes
@@ -548,35 +554,39 @@ class Loop
 
     private function _write($fd, int $what, \Event $ev, $args)
     {
+
         // Fd is ready for writing, write as max bytes as we can, persist event until we have write for this fd
-        $socketFd = \EventUtil::getSocketFd($fd);
-        $this->log("_write to fd %-5d", $socketFd);
+        $intFd = (int) sprintf('%d', $fd);
+        $this->log("_write to fd %d", $intFd);
         while (true) {
-            if (($nbMessages = count($this->writeBuffers[$socketFd])) === 0) {
+            if (($nbMessages = count($this->writeBuffers[$intFd])) === 0) {
+                $this->log('No message in stack for fd %d', $intFd);
                 break;
             }
             $index = 0;
-            if (strlen($this->writeBuffers[$socketFd][$index]) === 0) {
-                $this->log("No data to write for first element in fd %d stack", $socketFd);
+            if (strlen($this->writeBuffers[$intFd][$index]) === 0) {
+                $this->log("No data to write for first element in fd %d stack", $intFd);
                 break;
             }
             // fprintf(STDOUT, 'In process %d _write to fd %d%s', posix_getpid(), $fd, PHP_EOL);
-            if (false === ($writtenBytes = @socket_write($fd, $this->writeBuffers[$socketFd][$index], 8092))) {
+            if (false === ($writtenBytes = @socket_write($fd, $this->writeBuffers[$intFd][$index], 8092))) {
+                $error = socket_last_error($fd);
+                $this->log('_write has failed with error code: %d / %s', $error , socket_strerror($error));
                 break;
             }
             $this->log('Wrote %d bytes', $writtenBytes);
             if ($writtenBytes === 0) {
                 break;
             }
-            $remainingBytes = substr($this->writeBuffers[$socketFd][$index], $writtenBytes);
+            $remainingBytes = substr($this->writeBuffers[$intFd][$index], $writtenBytes);
             if ($remainingBytes) {
-                $this->writeBuffers[$socketFd][$index] = $remainingBytes;
+                $this->writeBuffers[$intFd][$index] = $remainingBytes;
             } else {
-                array_shift($this->writeBuffers[$socketFd]);
+                array_shift($this->writeBuffers[$intFd]);
             }
         }
         // Check if we have more messages to write
-        if (count($this->writeBuffers[$socketFd]) === 0 || $this->writeBuffers[$socketFd][0] === '') {
+        if (count($this->writeBuffers[$intFd]) === 0 || $this->writeBuffers[$intFd][0] === '') {
             $this->log("Removing write event");
             $ev->del();
         }
@@ -703,7 +713,7 @@ class Loop
             $pInfo->setLabels(...$labels)
                 ->setParentProcessInfo(clone $this->thisProcessInfo);
             $this->_initProtocolBuilder();
-            $this->log("Socket to parent : %d", \EventUtil::getSocketFd($pairs[1]));
+            // $this->log("Socket to parent : %d", \EventUtil::getSocketFd($pairs[1]));
             $read = new \Event($this->eb, $pairs[1], \Event::READ | \Event::PERSIST, function ($fd, int $what, $args) use (&$read) {
                 $this->_readSocket($fd, $what, $read, $args);
             });
@@ -755,7 +765,7 @@ class Loop
      */
     private function dispatchActions(): void
     {
-        //$this->_coalesceMessage();
+        $this->_coalesceMessage();
         /**
          * @var $action LoopAction
          */

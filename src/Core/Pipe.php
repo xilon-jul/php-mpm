@@ -9,6 +9,8 @@
 namespace Loop\Core;
 
 
+use http\Exception\RuntimeException;
+
 class Pipe
 {
     private $eread, $ewrite;
@@ -18,6 +20,9 @@ class Pipe
 
     public function __construct(int $pid, $fd, \Event &$eread, \Event &$ewrite, ?string... $labels)
     {
+        if(is_int($fd)){
+            throw new RuntimeException("Expected resource as fd");
+        }
         $this->pid = $pid;
         $this->fd = $fd;
         $this->eread = $eread;
