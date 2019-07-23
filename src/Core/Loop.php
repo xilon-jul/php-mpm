@@ -62,16 +62,18 @@ class Loop
 
     private $exitCode = 0;
 
-    /**
-     * Inotify
-     */
+    // START INOTIFY ____________________________________________________
     private $inotifyInit = null;
-
-    /**
-     * @var $inotifyEvent \Event
-     */
     private $inotifyEvent;
     private $inotifyWatches = [];
+    private $inotifyCallback = null;
+    // END INOTIFY ______________________________________________________
+
+    // START EIO ____________________________________________________
+    private $eioEvent;
+    // END EIO ______________________________________________________
+
+
 
     /**
      * @var int default timeout to quit loop so that it forces action to be dispatched
@@ -125,6 +127,7 @@ class Loop
                 $loop->getProcessInfo()->freePipe($pid);
             }
         ));
+
     }
 
     private function _registerSighandlers(): void
@@ -679,7 +682,9 @@ class Loop
             socket_close($pairs[0]);
             $this->eb->reInit();
             $this->eb = new \EventBase();
-            $this->inotifyEvent->free();
+            if($this->inotifyEvent){
+                $this->inotifyEvent->free();
+            }
             $this->inotifyInit = null;
             // Reset exitCode
             $this->exitCode = 0;
@@ -750,7 +755,7 @@ class Loop
      */
     private function dispatchActions(): void
     {
-        $this->_coalesceMessage();
+        //$this->_coalesceMessage();
         /**
          * @var $action LoopAction
          */
@@ -771,15 +776,17 @@ class Loop
                 // Do nothing and keep action in stack
                 continue;
             }
-            $this->log("Total: %-3d => Dispatch action for trigger: %s", $nbActions, $trigger);
             $action->invoke($this, ...$action->getRuntimeArgs());
-            $action->removeRuntimeArgs();
             $triggersToDisable[$trigger] = false;
             if(!$action->isPersistent()){
                 unset($this->loopActions[$i]);
             }
         }
         $this->loopActions = array_values($this->loopActions);
+
+        array_walk($this->loopActions, function(LoopAction $action){
+           $action->removeRuntimeArgs();
+        });
 
         array_walk($triggersToDisable, function($triggerFlag, $triggerName){
             $this->setTriggerFlag($triggerName, $triggerFlag);
