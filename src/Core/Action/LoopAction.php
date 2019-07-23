@@ -18,8 +18,8 @@ final class LoopAction
     const LOOP_ACTION_PROCESS_STOPPED = 'internal_action_process_stopped';
     const LOOP_ACTION_PROCESS_CONTINUED = 'internal_action_process_continued';
     const LOOP_ACTION_INOTIFY_EVENT = 'internal_action_inotify_event';
+    const LOOP_ACTION_EIO_EVENT = 'internal_action_eio_event';
     const LOOP_ACTION_MESSAGE_RECEIVED = 'internal_action_message_received';
-    const LOOP_ACTION_STDIN_READ = 'internal_action_file_read';
     const LOOP_ACTION_PROCESS_TERMINATED = 'internal_action_process_terminated';
     const LOOP_ACTION_PROCESS_CHILD_TERMINATED = 'internal_action_process_child_terminated';
     const LOOP_ACTION_PROCESS_ORPHANED = 'internal_action_process_orphaned';

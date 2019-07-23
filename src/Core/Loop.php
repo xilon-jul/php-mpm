@@ -228,7 +228,7 @@ class Loop
 
     public function removeFileWatch(string $pathname){
         $fd = null;
-        $this->inotifyWatches = array_filter($this->inotifyWatches, function(array $watch) use ($pathname, &$fd) {
+        $this->inotifyWatches = array_filter($this->inotifyWatches[posix_getpid()], function(array $watch) use ($pathname, &$fd) {
            if($watch['pathname'] === $pathname){
                $fd = $watch['fd'];
                return false;
@@ -242,27 +242,60 @@ class Loop
     }
 
     /**
-     * Adds a file to be watch for any event (see inotify)
+     * Adds a file to be watched for any event (see inotify)
      * @param string $pathname the file or directory to be watched
-     * @param \Closure $callback received this pool instance and the watch event array (native array from inotify lib)
+     * @param \Closure $callback the callback to invoke when events are received, you should give the same callback as it will be registered once
+     * The callback receives as first argument the loop instance, and as second argument an inotify array as returned by inotify_read with an extra key pathname
+     * corresponding to the file being watched
      * @return Loop this loop instance
      */
     public function addFileWatch(string $pathname, \Closure $callback): Loop
     {
+        if(!file_exists($pathname)){
+            return $this;
+        }
+        if(!$this->inotifyCallback){
+            $this->inotifyCallback = $callback;
+        }
+        $this->log('Add file watch %s', $pathname);
         if ($this->inotifyInit === null) {
             $this->inotifyInit = inotify_init();
-            $this->inotifyEvent = new \Event($this->eb, $this->inotifyInit, \Event::READ | \Event::PERSIST, function ($fd, int $what, $args) use ($callback) {
-                $this->registerActionForTrigger(LoopAction::LOOP_ACTION_INOTIFY_EVENT, true, false, function(Loop $loop) use($callback, $fd) {
-                    // $this->log('Register action for watch')
-                    $callback($loop, inotify_read($fd));
-                });
-                $this->setTriggerFlag(LoopAction::LOOP_ACTION_INOTIFY_EVENT, true);
-            });
-            $this->inotifyEvent->add();
+            $this->bindInotifyToLibevent();
         }
-        $this->inotifyWatches[] = ['pathname' => $pathname, 'fd' => inotify_add_watch($this->inotifyInit, $pathname, IN_ALL_EVENTS)];
+        $this->inotifyWatches[posix_getpid()][] = ['pathname' => $pathname, 'fd' => inotify_add_watch($this->inotifyInit, $pathname, IN_ALL_EVENTS)];
+        $this->log('Watch with fd %d added', end($this->inotifyWatches)['fd']);
         return $this;
     }
+
+    private function bindInotifyToLibevent(){
+        $this->registerActionForTrigger(LoopAction::LOOP_ACTION_INOTIFY_EVENT, true, false, function(Loop $loop, ...$args) {
+            call_user_func($this->inotifyCallback, $loop, ...$args);
+        }, function(){ return true; });
+
+        if($this->inotifyEvent !== null){
+            $this->inotifyEvent->del();
+            $this->inotifyEvent->free();
+            $this->inotifyEvent = null;
+        }
+        $this->inotifyEvent = new \Event($this->eb, $this->inotifyInit, \Event::READ | \Event::PERSIST, function ($fd, int $what, $args) {
+            $this->log('Inotify libevent event callback invoked...');
+            $inotifyData = inotify_read($fd);
+            $inotifyData = array_map(function($eventStructure){
+                // Get pathname from added watches
+                $watchFd = $eventStructure['wd'];
+                list($watchDescription) = array_values(array_filter($this->inotifyWatches[posix_getpid()], function($value) use($watchFd) {
+                    var_dump($value);
+                    return $watchFd === $value['fd'];
+                }));
+                $eventStructure['pathname'] = $watchDescription['pathname'];
+                return $eventStructure;
+            }, $inotifyData);
+            $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_INOTIFY_EVENT, $inotifyData);
+            $this->setTriggerFlag(LoopAction::LOOP_ACTION_INOTIFY_EVENT, true);
+        });
+        $this->inotifyEvent->add();
+    }
+
 
     public function setLoggingEnabled(bool $enabled): Loop {
         $this->enableLogger = $enabled;
@@ -646,6 +679,8 @@ class Loop
             socket_close($pairs[0]);
             $this->eb->reInit();
             $this->eb = new \EventBase();
+            $this->inotifyEvent->free();
+            $this->inotifyInit = null;
             // Reset exitCode
             $this->exitCode = 0;
             // Clear all buffers
@@ -678,7 +713,6 @@ class Loop
             if (is_callable($childCallback)) {
                 call_user_func($childCallback, $this);
             }
-
             $this->log("Entering loop is running: %d", $this->isRunning());
             self::loop();
         }
