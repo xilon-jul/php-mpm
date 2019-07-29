@@ -7,7 +7,6 @@ You can do the following to debug a core dump :
 > docker-php-source extract
 # And in gdb you can now source /usr/src/php/.gdbinit to have specific debug command for php binary
 > gdb php <core_file>
-
 ````
 
 ```bash

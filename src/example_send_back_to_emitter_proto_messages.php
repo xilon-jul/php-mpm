@@ -16,15 +16,13 @@ This is the process tree :
           |
           P3
 
-This example demonstrates how the master process can send a message to all of its children every 3 seconds.
-Each process displays the message payload to stdout.
+This example demonstrates how each child process can send back a message to the master process (the emitter). Messages is sent back only once
 /*/
 $loop = new \Loop\Core\Loop();
-$loop->setLoggingEnabled(false);
-
+$loop->setLoggingEnabled(true);
 $exampleMessage = new ProcessResolutionProtocolMessage();
 $exampleMessage->getField('destination_label')->setValue('group');
-$exampleMessage->getField('data')->setValue('Test message');
+$exampleMessage->getField('data')->setValue('ping');
 
 $loop->addPeriodTimer(3, function(Loop $loop) use($exampleMessage) {
     $loop->submit($exampleMessage);
@@ -32,8 +30,12 @@ $loop->addPeriodTimer(3, function(Loop $loop) use($exampleMessage) {
 
 // Register this action for master process only
 $loop->registerActionForTrigger(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true, false, function(Loop $loop, ...$messages) {
+    static $counter = 0;
     foreach($messages as $m){
-        fprintf(STDOUT, 'In pid: %5d - Received back message: %s from %5d %s', $loop->getProcessInfo()->getPid(), $m->getField('data')->getValue(), $m->getField('source_pid')->getValue(), PHP_EOL);
+        fprintf(STDOUT, 'In pid: %5d - Received back message: "%s" from %5d %s', $loop->getProcessInfo()->getPid(), $m->getField('data')->getValue(), $m->getField('source_pid')->getValue(), PHP_EOL);
+    }
+    if(++$counter === 3){
+        $loop->shutdown();
     }
 }, function(){
     return false;
@@ -42,7 +44,6 @@ $loop->registerActionForTrigger(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true, 
 // This action is registered for all processes
 $loop->registerActionForTrigger(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true, false, function(Loop $loop, ...$messages){
     if($loop->getProcessInfo()->isRootOfHierarchy()){
-
         return;
     }
     fprintf(STDOUT, 'Processing message in process %5d %s', $loop->getProcessInfo()->getPid(), PHP_EOL);
@@ -55,7 +56,6 @@ $loop->registerActionForTrigger(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true, 
         $pong->getField('data')->setValue('Pong : ' . $m->getField('data')->getValue());
         $loop->submit($pong);
     }
-
 });
 
 $loop->fork(function($loop){

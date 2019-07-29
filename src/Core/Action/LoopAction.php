@@ -129,11 +129,11 @@ final class LoopAction
     public final function getPriority(): int {
         switch($this->trigger){
             case LoopAction::LOOP_ACTION_PROCESS_TERMINATED:
-                return 0;
+                return 1;
             case LoopAction::LOOP_ACTION_PROCESS_CHILD_TERMINATED:
                 return -1;
             case LoopAction::LOOP_ACTION_PROCESS_CHANNEL_CLOSED:
-                return 1;
+                return 0;
             case LoopAction::LOOP_ACTION_PROCESS_ORPHANED:
                 return 2;
             case LoopAction::LOOP_ACTION_MESSAGE_RECEIVED:

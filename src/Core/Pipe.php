@@ -9,10 +9,13 @@
 namespace Loop\Core;
 
 
-use http\Exception\RuntimeException;
+use Loop\Util\Logger;
 
 class Pipe
 {
+    use Logger;
+
+
     private $eread, $ewrite;
     private $fd;
     private $pid;
@@ -20,9 +23,7 @@ class Pipe
 
     public function __construct(int $pid, $fd, \Event &$eread, \Event &$ewrite, ?string... $labels)
     {
-        if(is_int($fd)){
-            throw new RuntimeException("Expected resource as fd");
-        }
+        $this->log('pipe', 'Create pipe to pid %-5d to fd %d', $pid, $fd);
         $this->pid = $pid;
         $this->fd = $fd;
         $this->eread = $eread;
@@ -71,9 +72,7 @@ class Pipe
     }
 
     public function free(){
-        $this->eread->del();
-        $this->ewrite->del();
-
+        $this->log('pipe', 'Free pipe to pid %-5d with fd %d', $this->pid, $this->fd);
         $this->eread->free();
         $this->ewrite->free();
         $this->eread = null;

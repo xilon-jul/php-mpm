@@ -1,7 +1,11 @@
 <?php
 namespace Loop\Core;
 
+use Loop\Util\Logger;
+
 class ProcessInfo {
+
+    use Logger;
 
     const PROCESS_ST_RUNNING = 0;
     const PROCESS_ST_STOPPED = 1;
@@ -90,6 +94,7 @@ class ProcessInfo {
     }
 
     public function addChild(ProcessInfo $child){
+        $this->log('pinfo', 'Add child %-5d', $child->getPid());
         $this->children[$child->getPid()] = $child;
         return $this;
     }
@@ -120,12 +125,16 @@ class ProcessInfo {
         if(count($pipesToFilter) === 0){
             return false;
         }
-        $pipe = array_shift($pipesToFilter);
-        $pipe->free();
-        $pipe = null;
+        $this->log('pinfo', 'Free pipes to pids: (%s)', implode(',', array_map(function($p){ return $p->getPid(); }, $pipesToFilter)));
+        array_walk($pipesToFilter, function(Pipe $p){
+            $p->free();
+        });
 
-        $this->pipes = array_filter($this->pipes, function(Pipe $p) use($pid) {
-            return $p->getPid() !== $pid;
+        $this->pipes = array_udiff($this->pipes, $pipesToFilter, function(Pipe $a, Pipe $b){
+            if($a->getFd() === $b->getFd() && $a->getPid() === $b->getPid()){
+                return 0;
+            }
+            return -1;
         });
         $this->parent = null;
         return true;
@@ -135,7 +144,23 @@ class ProcessInfo {
         $this->freePipe(-1);
     }
 
+    /**
+     * Simply unsets the children array, does not free any associated pipes
+     */
+    public function resetChildren(){
+        $this->children = [];
+        $this->pipes = [];
+    }
+
+    public function removeChildren(): ProcessInfo {
+        foreach($this->children as $pid => $v){
+            $this->removeChild($pid);
+        }
+        return $this;
+    }
+
     public function removeChild(int $pid): ProcessInfo {
+        $this->log('pinfo', 'Remove child %-5d', $pid);
         $this->freePipe($pid);
         unset($this->children[$pid]);
         return $this;
@@ -247,6 +272,7 @@ class ProcessInfo {
     }
 
     public function __clone(){
+        $this->log('pinfo', 'Cloning process info with pid %-5d', $this->pid);
         $this->pipes = [];
         $this->children = [];
     }
