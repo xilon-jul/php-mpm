@@ -19,7 +19,6 @@ This is the process tree :
 This example demonstrates how each child process can send back a message to the master process (the emitter). Messages is sent back only once
 /*/
 $loop = new \Loop\Core\Loop();
-$loop->setLoggingEnabled(true);
 $exampleMessage = new ProcessResolutionProtocolMessage();
 $exampleMessage->getField('destination_label')->setValue('group');
 $exampleMessage->getField('data')->setValue('ping');

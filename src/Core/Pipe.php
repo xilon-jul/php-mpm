@@ -9,12 +9,11 @@
 namespace Loop\Core;
 
 
+
 use Loop\Util\Logger;
 
 class Pipe
 {
-    use Logger;
-
 
     private $eread, $ewrite;
     private $fd;
@@ -23,7 +22,7 @@ class Pipe
 
     public function __construct(int $pid, $fd, \Event &$eread, \Event &$ewrite, ?string... $labels)
     {
-        $this->log('pipe', 'Create pipe to pid %-5d to fd %d', $pid, $fd);
+        Logger::log('pipe', 'Create pipe to pid %-5d to fd %d', $pid, $fd);
         $this->pid = $pid;
         $this->fd = $fd;
         $this->eread = $eread;
@@ -72,7 +71,7 @@ class Pipe
     }
 
     public function free(){
-        $this->log('pipe', 'Free pipe to pid %-5d with fd %d', $this->pid, $this->fd);
+        Logger::log('pipe', 'Free pipe to pid %-5d with fd %d', $this->pid, $this->fd);
         $this->eread->free();
         $this->ewrite->free();
         $this->eread = null;

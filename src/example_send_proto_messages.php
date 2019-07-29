@@ -20,7 +20,6 @@ This example demonstrates how the master process can send a message to all of it
 Each process displays the message payload to stdout.
 /*/
 $loop = new \Loop\Core\Loop();
-$loop->setLoggingEnabled(false);
 
 $exampleMessage = new ProcessResolutionProtocolMessage();
 $exampleMessage->getField('destination_label')->setValue('group');

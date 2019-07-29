@@ -11,19 +11,17 @@ use Loop\Protocol\Factory\ProtocolMessageFactory;
 use Loop\Protocol\ProcessResolutionProtocolMessage;
 use Loop\Protocol\ProtocolBuilder;
 use Loop\Protocol\ProtocolMessage;
+use Loop\Util\Logger;
 
 pcntl_async_signals(true);
 
 class Loop
 {
-    use \Loop\Util\Logger;
     /**
      * @var bool $running
      */
     private $running = true;
     private $shutdown = false;
-
-    private $enableLogger = true;
 
     /**
      * @var ProcessInfo $thisProcessInfo
@@ -52,12 +50,7 @@ class Loop
      */
     private $triggers = [];
 
-    /**
-     * @var \Event[] $timerEvents
-     */
-    private $timerEvents = [];
-
-    private $pipeEvents = [];
+    private $events = [];
 
     /**
      * @var \EventBase $base
@@ -108,7 +101,7 @@ class Loop
             true,
             true,
             function(Loop $loop, ProcessInfo $processInfo){
-                $this->log('dispatch', "Default action for child process %-5d terminated", $processInfo->getPid());
+                Logger::log('dispatch', "Default action for child process %-5d terminated", $processInfo->getPid());
                 $loop->getProcessInfo()->removeChild($processInfo->getPid());
             }
         ));
@@ -118,7 +111,7 @@ class Loop
             true,
             true,
             function(Loop $loop, ProcessInfo $processInfo){
-                $this->log('dispatch', "Default action for process_terminated");
+                Logger::log('dispatch', "Default action for process_terminated");
                 $loop->stop();
             }
         ));
@@ -128,7 +121,7 @@ class Loop
             true,
             true,
             function(Loop $loop, $pid){
-                $loop->log('dispatch', 'Default action process channel closed for pid %-5d', $pid);
+                Logger::log('dispatch', 'Default action process channel closed for pid %-5d', $pid);
                 $loop->getProcessInfo()->freePipe($pid);
             }
         ));
@@ -137,7 +130,7 @@ class Loop
 
     private function _registerSighandlers(): void
     {
-        $this->log('signal','Registering signals');
+        Logger::log('signal','Registering signals');
         pcntl_signal(SIGCHLD, [$this, 'sighdl']);
         pcntl_signal(SIGCONT, [$this, 'sighdl']);
         pcntl_signal(SIGTERM, [$this, 'sighdl']);
@@ -167,13 +160,13 @@ class Loop
          * @see http://manpagesfr.free.fr/man/man2/getrusage.2.html
          */
         $rusage = [];
-        $this->log('signal',"Handling signal %d", $signo);
+        Logger::log('signal',"Handling signal %d", $signo);
         switch ($signo) {
             case SIGSEGV:
-                $this->log('signal','OHHHHH NOOOOOOO !!!! SEGFAULT in %d', posix_getpid());
+                Logger::log('signal','OHHHHH NOOOOOOO !!!! SEGFAULT in %d', posix_getpid());
                 exit(255);
             case SIGTERM:
-                $this->log('signal','SIGTERM caught in %-5d', posix_getpid());
+                Logger::log('signal','SIGTERM caught in %-5d', posix_getpid());
                 $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_TERMINATED, $this->thisProcessInfo);
                 $this->setTriggerFlag(LoopAction::LOOP_ACTION_PROCESS_TERMINATED, true);
                 $this->thisProcessInfo->setStatus(ProcessInfo::PROCESS_ST_EXITED, sprintf("Process exited with signal: %d", SIGTERM))
@@ -192,10 +185,10 @@ class Loop
                     $err = pcntl_get_last_error();
                     switch($err){
                         case PCNTL_ECHILD:
-                            $this->log('signal',"Cannot retrieve child process status: no child to reap status from");
+                            Logger::log('signal',"Cannot retrieve child process status: no child to reap status from");
                             break;
                         default:
-                            $this->log('signal',"Unhandled pcntl error %d", $err);
+                            Logger::log('signal',"Unhandled pcntl error %d", $err);
                     }
                 }
                 break;
@@ -210,11 +203,11 @@ class Loop
             $this->thisProcessInfo->addChild(new ProcessInfo($pid));
             $processInfo = $this->thisProcessInfo->getProcessInfo($pid);
         }
-        $this->log('signal',"Waited after process child %d - All children = (%s)", $pid, implode(',', array_map(function(ProcessInfo $c){
+        Logger::log('signal',"Waited after process child %d - All children = (%s)", $pid, implode(',', array_map(function(ProcessInfo $c){
             return $c->getPid();
         }, $this->thisProcessInfo->getChildren())));
         if (pcntl_wifexited($status)) {
-            $this->log('signal',"Pid %-5d has exited", $pid);
+            Logger::log('signal',"Pid %-5d has exited", $pid);
             $processInfo->setStatus(ProcessInfo::PROCESS_ST_EXITED, sprintf("Process exited with status: %d", $status))
                 ->setResourceUsage($rusage);
             $this->setTriggerFlag(LoopAction::LOOP_ACTION_PROCESS_CHILD_TERMINATED, true);
@@ -230,7 +223,7 @@ class Loop
             $this->setTriggerFlag(LoopAction::LOOP_ACTION_PROCESS_CONTINUED, true);
             $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_CONTINUED, $processInfo);
         } elseif (pcntl_wifsignaled($status)) {
-            $this->log('signal', "Pid %-5d exited due to uncaught signal", $pid);
+            Logger::log('signal', "Pid %-5d exited due to uncaught signal", $pid);
             $processInfo->setStatus(ProcessInfo::PROCESS_ST_EXITED, sprintf("Process exited due to uncaught signal: %d", $status))
                 ->setResourceUsage($rusage);
             $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_CHILD_TERMINATED, $processInfo);
@@ -249,7 +242,7 @@ class Loop
            return true;
         });
         if($fd !== null){
-            $this->log('inotify','Remove inotify watch with fd %s', $fd);
+            Logger::log('inotify','Remove inotify watch with fd %s', $fd);
             inotify_rm_watch($this->inotifyInit, $fd);
         }
     }
@@ -270,13 +263,13 @@ class Loop
         if(!$this->inotifyCallback){
             $this->inotifyCallback = $callback;
         }
-        $this->log('inotify', 'Add file watch %s', $pathname);
+        Logger::log('inotify', 'Add file watch %s', $pathname);
         if ($this->inotifyInit === null) {
             $this->inotifyInit = inotify_init();
             $this->bindInotifyToLibevent();
         }
         $this->inotifyWatches[posix_getpid()][] = ['pathname' => $pathname, 'fd' => inotify_add_watch($this->inotifyInit, $pathname, IN_ALL_EVENTS)];
-        $this->log('inotify', 'Watch with fd %d added', end($this->inotifyWatches)['fd']);
+        Logger::log('inotify', 'Watch with fd %d added', end($this->inotifyWatches)['fd']);
         return $this;
     }
 
@@ -291,7 +284,7 @@ class Loop
             $this->inotifyEvent = null;
         }
         $this->inotifyEvent = new \Event($this->eb, $this->inotifyInit, \Event::READ | \Event::PERSIST, function ($fd, int $what, $args) {
-            $this->log('inotify', 'Inotify libevent event callback invoked...');
+            Logger::log('inotify', 'Inotify libevent event callback invoked...');
             $inotifyData = inotify_read($fd);
             $inotifyData = array_map(function($eventStructure){
                 // Get pathname from added watches
@@ -306,12 +299,6 @@ class Loop
             $this->setTriggerFlag(LoopAction::LOOP_ACTION_INOTIFY_EVENT, true);
         });
         $this->inotifyEvent->add();
-    }
-
-
-    public function setLoggingEnabled(bool $enabled): Loop {
-        $this->enableLogger = $enabled;
-        return $this;
     }
 
     public function registerActionForTrigger(string $triggerName, bool $persistent, bool $immediate, $callable, $forkSurviveStrategy = null): LoopAction {
@@ -331,14 +318,14 @@ class Loop
     {
         $flags = $startNow ? \Event::TIMEOUT : \Event::TIMEOUT | \Event::PERSIST;
         $ev = new \Event($this->eb, -1, $flags, function () use ($maxExecution, $startNow, $interval, $callable, &$ev) {
-            $this->log('timer', 'Executing timer');
+            Logger::log('timer', 'Executing timer');
             static $nbExecution = 0;
             if ($nbExecution === $maxExecution) {
                 $ev->del();
                 $ev->free();
-                $this->timerEvents = array_filter($this->timerEvents, function($event) use($ev) {
+                $this->events = array_values(array_filter($this->events, function($event) use($ev) {
                     return $ev === $event;
-                });
+                }));
                 $ev = null;
                 return;
             }
@@ -354,29 +341,18 @@ class Loop
         else {
             $ev->add($interval);
         }
-        $this->timerEvents[] = $ev;
+        $this->events[] = $ev;
         return $this;
     }
 
-    private function freeTimersEvents(){
-        $nbTimers = count($this->timerEvents);
-        $this->log('timer','Freeing %d timers', $nbTimers);
+    private function freeEvents(){
+        $nbTimers = count($this->events);
         for($i = 0; $i < $nbTimers; $i++){
-            $timer = $this->timerEvents[$i];
+            $timer = $this->events[$i];
             $timer->free();
             $timer = null;
         }
-        $this->timerEvents = [];
-    }
-
-    private function freePipeEvents(){
-        $nbTimers = count($this->pipeEvents);
-        for($i = 0; $i < $nbTimers; $i++){
-            $timer = $this->pipeEvents[$i];
-            $timer->free();
-            $timer = null;
-        }
-        $this->pipeEvents = [];
+        $this->events = [];
     }
 
     public function setCliCommandTitle(string $title) : Loop {
@@ -448,7 +424,7 @@ class Loop
         $newRuntimeArgs = [$args[0]];
         $nbArgs = count($args);
         $hashmap = [];
-        $this->log('dispatch', "Message before coalesce action message received %d", $nbArgs);
+        Logger::log('dispatch', "Message before coalesce action message received %d", $nbArgs);
         for($i = 1; $i < $nbArgs; $i++){
             /**
              * @var $argMessage ProcessResolutionProtocolMessage
@@ -459,13 +435,13 @@ class Loop
             }
             $hash = md5($argMessage->getField('data')->getValue());
             $hashmap[$hash] = $argMessage;
-            $this->log('dispatch',"Coalesce message with hash %s", $hash);
+            Logger::log('dispatch',"Coalesce message with hash %s", $hash);
         }
 
         array_walk(array_values($hashmap), function($message) use(&$newRuntimeArgs) {
             $newRuntimeArgs[] = $message;
         });
-        $this->log('dispatch', "Message after coalesce action message received %d", count($newRuntimeArgs));
+        Logger::log('dispatch', "Message after coalesce action message received %d", count($newRuntimeArgs));
         $messageReceivedAction->removeRuntimeArgs();
         $messageReceivedAction->setRuntimeArgs(...$newRuntimeArgs);
     }
@@ -487,7 +463,7 @@ class Loop
             ($hasLabel = $this->thisProcessInfo->hasLabel($destinationLabel)) ||
             $this->thisProcessInfo->getPid() === $destinationPID
         ) {
-            $this->log('socket',"Received message from pid %-5d with data : %s\n", $message->getField('source_pid')->getValue(), $message->getField('data')->getValue());
+            Logger::log('socket',"Received message from pid %-5d with data : %s\n", $message->getField('source_pid')->getValue(), $message->getField('data')->getValue());
             $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, $message);
             $this->setTriggerFlag(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true);
             if (!$broadcast && !$hasLabel) {
@@ -496,7 +472,7 @@ class Loop
             }
         }
         // Message is a broadcast or targeted to another process, send it to any route except the route where it comes from
-        $this->log('socket',"Message needs to be routed elsewhere %s / %s", $destinationPID, $destinationLabel);
+        Logger::log('socket',"Message needs to be routed elsewhere %s / %s", $destinationPID, $destinationLabel);
         foreach ($this->thisProcessInfo->getPipes() as $pipe) {
             if ($pipe->getPid() === $message->getField('previous_pid')->getValue()) {
                 continue;
@@ -513,24 +489,24 @@ class Loop
     private function _readSocket($fd, int $what, \Event $ev, $args)
     {
         if($what & \Event::TIMEOUT){
-            // $this->log('_read timeout');
+            // Logger::log('_read timeout');
             return;
         }
         $intFd = (int) sprintf('%d', $fd);
-        $this->log('socket','_read from fd %d with event flags %d', $fd, $what);
+        Logger::log('socket','_read from fd %d with event flags %d', $fd, $what);
         $this->readBuffers[$intFd] = strlen($this->readBuffers[$intFd]) > 0 ? $this->readBuffers[$intFd] : '';
         while (true) {
             $buffer = '';
             if (false === ($bytes = @socket_recv($fd, $buffer, 8092, 0))) {
                 $errnum = socket_last_error($fd);
                 $this->readBuffers[$intFd] .= $buffer;
-                $this->log('socket',"Socket error: %d - %s", $errnum, socket_strerror($errnum));
+                Logger::log('socket',"Socket error: %d - %s", $errnum, socket_strerror($errnum));
                 switch ($errnum) {
                     case 0:
-                        $this->log('socket',"Socket recv has failed but error code is success");
+                        Logger::log('socket',"Socket recv has failed but error code is success");
                         break 2;
                     case SOCKET_EAGAIN:
-                        $this->log('socket',"Socket egain");
+                        Logger::log('socket',"Socket egain");
                         break 2;
                     case SOCKET_ECONNRESET:
                         break;
@@ -541,7 +517,7 @@ class Loop
             $this->readBuffers[$intFd] .= $buffer;
             // Connection closed
             if ($bytes === 0) {
-                $this->log('socket', "No bytes....");
+                Logger::log('socket', "No bytes....");
                 $pid = $this->thisProcessInfo->getPidBoundToFd($fd);
                 if($pid === null){
                     // No pid, other end was probably already removed
@@ -549,10 +525,10 @@ class Loop
                     $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_TERMINATED, $this->thisProcessInfo);
                     return;
                 }
-                $this->log('socket', "Connection closed with fd %-5d bound to pid %-5d", $intFd, $pid);
+                Logger::log('socket', "Connection closed with fd %-5d bound to pid %-5d", $intFd, $pid);
                 // Case whenever the pipes that gets closed is the only one
                 if($this->thisProcessInfo->countPipes() === 1 && $this->thisProcessInfo->hasPipe($pid)) {
-                    $this->log('socket', "Last pipe broken");
+                    Logger::log('socket', "Last pipe broken");
                     $this->setTriggerFlag(LoopAction::LOOP_ACTION_PROCESS_TERMINATED, true);
                     $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_TERMINATED, $this->thisProcessInfo);
                 }
@@ -560,24 +536,24 @@ class Loop
                 $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_CHANNEL_CLOSED, $pid);
 
                 if (!$this->thisProcessInfo->isRootOfHierarchy() && ($ppid = posix_getppid()) <= 1) {
-                    $this->log('socket',"Became orphan: parent process = %-5d", $ppid);
+                    Logger::log('socket',"Became orphan: parent process = %-5d", $ppid);
                     $this->setTriggerFlag(LoopAction::LOOP_ACTION_PROCESS_ORPHANED, true);
                     $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_ORPHANED);
                     $this->stop();
                 }
                 return;
             }
-            $this->log('socket', "Read %d bytes from fd %d", strlen($buffer), $fd);
+            Logger::log('socket', "Read %d bytes from fd %d", strlen($buffer), $fd);
         }
         try {
-            $this->log('socket', 'Try read from protocol message with buffer: %s', $this->readBuffers[$intFd]);
+            Logger::log('socket', 'Try read from protocol message with buffer: %s', $this->readBuffers[$intFd]);
             while(true){
                 $this->protocolBuilder->read($this->readBuffers[$intFd]);
-                $this->log('socket', 'Message read');
+                Logger::log('socket', 'Message read');
             }
         } catch (\Exception $e) {
             // Do nothing wait until more bytes
-            $this->log('socket', "Protocol exception %s", $e->getMessage());
+            Logger::log('socket', "Protocol exception %s", $e->getMessage());
         }
     }
 
@@ -591,24 +567,24 @@ class Loop
 
         // Fd is ready for writing, write as max bytes as we can, persist event until we have write for this fd
         $intFd = (int) sprintf('%d', $fd);
-        $this->log('socket', "_write to fd %d", $intFd);
+        Logger::log('socket', "_write to fd %d", $intFd);
         while (true) {
             if (($nbMessages = count($this->writeBuffers[$intFd])) === 0) {
-                $this->log('socket', 'No message in stack for fd %d', $intFd);
+                Logger::log('socket', 'No message in stack for fd %d', $intFd);
                 break;
             }
             $index = 0;
             if (strlen($this->writeBuffers[$intFd][$index]) === 0) {
-                $this->log('socket', "No data to write for first element in fd %d stack", $intFd);
+                Logger::log('socket', "No data to write for first element in fd %d stack", $intFd);
                 break;
             }
             // fprintf(STDOUT, 'In process %d _write to fd %d%s', posix_getpid(), $fd, PHP_EOL);
             if (false === ($writtenBytes = @socket_write($fd, $this->writeBuffers[$intFd][$index], 8092))) {
                 $error = socket_last_error($fd);
-                $this->log('socket', '_write has failed with error code: %d / %s', $error , socket_strerror($error));
+                Logger::log('socket', '_write has failed with error code: %d / %s', $error , socket_strerror($error));
                 break;
             }
-            $this->log('socket', 'Wrote %d bytes', $writtenBytes);
+            Logger::log('socket', 'Wrote %d bytes', $writtenBytes);
             if ($writtenBytes === 0) {
                 break;
             }
@@ -621,7 +597,7 @@ class Loop
         }
         // Check if we have more messages to write
         if (count($this->writeBuffers[$intFd]) === 0 || $this->writeBuffers[$intFd][0] === '') {
-            $this->log('socket', "Removing write event");
+            Logger::log('socket', "Removing write event");
             $ev->del();
         }
     }
@@ -640,7 +616,7 @@ class Loop
         array_walk($this->loopActions, function(LoopAction $action) use($triggerName, $args) {
            if($action->trigger() !== $triggerName) return;
            $action->setRuntimeArgs(...$args);
-           $this->log('dispatch', "Settings args %s / %s for trigger %s ", implode(',', $args), implode(',', $action->getRuntimeArgs()), $triggerName);
+           Logger::log('dispatch', "Settings args %s / %s for trigger %s ", implode(',', $args), implode(',', $action->getRuntimeArgs()), $triggerName);
            if($action->isImmediate()){
                $this->eb->stop();
            }
@@ -681,7 +657,7 @@ class Loop
             return -1;
         } else if ($pid > 0) {
             // Parent
-            $this->log('fork', "Fork process child: %-5d", $pid);
+            Logger::log('fork', "Fork process child: %-5d", $pid);
             socket_close($pairs[1]);
             $read = null;
             $read = new \Event($this->eb, $pairs[0], \Event::READ | \Event::PERSIST, function ($fd, int $what, $args) use (&$read) {
@@ -696,18 +672,17 @@ class Loop
                     ->setLabels(...$labels)
             )->addPipe(new Pipe($pid, $pairs[0], $read, $write, ...$labels));
             $read->add(self::$DEFAULT_TIMEOUT);
-            array_push($this->pipeEvents, $read, $write);
-            $this->log('fork', "Ended fork: %-5d", $pid);
+            array_push($this->events, $read, $write);
+            Logger::log('fork', "Ended fork: %-5d", $pid);
             return $pid;
         } else {
             pcntl_sigprocmask(SIG_BLOCK, []);
             socket_close($pairs[0]);
-            $this->freePipeEvents();
-            $this->freeTimersEvents();
+            $this->freeEvents();
             if($this->inotifyEvent){
                 $this->inotifyEvent->free();
             }
-            $this->log('fork', 'Fork in child context');
+            Logger::log('fork', 'Fork in child context');
 
 
 
@@ -729,7 +704,7 @@ class Loop
             $pInfo->setLabels(...$labels)
                 ->setParentProcessInfo(clone $this->thisProcessInfo);
             $this->_initProtocolBuilder();
-            // $this->log("Socket to parent : %d", \EventUtil::getSocketFd($pairs[1]));
+            // Logger::log("Socket to parent : %d", \EventUtil::getSocketFd($pairs[1]));
             $read = new \Event($this->eb, $pairs[1], \Event::READ | \Event::PERSIST, function ($fd, int $what, $args) use (&$read) {
                 $this->_readSocket($fd, $what, $read, $args);
             });
@@ -737,7 +712,7 @@ class Loop
             $write = new \Event($this->eb, $pairs[1], \Event::WRITE, function ($fd, int $what, $args) use (&$write) {
                 $this->_write($fd, $what, $write, $args);
             });
-            array_push($this->pipeEvents, $read, $write);
+            array_push($this->events, $read, $write);
             $pInfo->addPipe(
                 new Pipe(posix_getppid(), $pairs[1], $read, $write, ...$pInfo->getParentProcessInfo()->getLabels())
             );
@@ -795,7 +770,7 @@ class Loop
         if($nbActions !== 0){
             $this->thisProcessInfo->setAvailable(false);
         }
-        $this->log('dispatch', 'Loop through actions');
+        Logger::log('dispatch', 'Loop through actions');
         for($i = 0; $i < $nbActions; $i++){
             $action = $this->loopActions[$i];
             $trigger = $action->trigger();
@@ -803,7 +778,7 @@ class Loop
                 // Do nothing and keep action in stack
                 continue;
             }
-            $this->log('dispatch', 'Dispatch action %s with priority %d', $trigger, $action->getPriority());
+            Logger::log('dispatch', 'Dispatch action %s with priority %d', $trigger, $action->getPriority());
             $action->invoke($this, ...$action->getRuntimeArgs());
             $triggersToDisable[$trigger] = false;
             if(!$action->isPersistent()){
@@ -839,7 +814,7 @@ class Loop
      */
     public function closeStandardFileDescriptors(): Loop {
         if($this->enableLogger){
-            $this->log('daemon', 'Warning, cannot close standard fds if logging is enabled');
+            Logger::log('daemon', 'Warning, cannot close standard fds if logging is enabled');
             return $this;
         }
         fclose(STDIN);
@@ -900,9 +875,9 @@ class Loop
      * Note that children will continue processing loop actions before shutting down.
      */
     public function shutdown(): void {
-        $this->log('daemon', 'Asking processes to shutdown');
+        Logger::log('daemon', 'Asking processes to shutdown');
         if(!$this->running){
-                $this->log('daemon', 'Process was already ask to shutdown...');
+                Logger::log('daemon', 'Process was already ask to shutdown...');
                 return;
         }
         $this->stop();
@@ -910,7 +885,7 @@ class Loop
 
     public function signal(int $signal): Loop {
         array_walk($this->getProcessInfo()->getChildren(), function(ProcessInfo $childInfo) use($signal) {
-            $this->log('signal', "Sending signal %d to %-5d", $signal, $childInfo->getPid());
+            Logger::log('signal', "Sending signal %d to %-5d", $signal, $childInfo->getPid());
             posix_kill($childInfo->getPid(), $signal);
         });
         return $this;
@@ -928,7 +903,7 @@ class Loop
         if(!$this->isRunning()){
             return $this;
         }
-        $this->log('daemon', "Stopping loop");
+        Logger::log('daemon', "Stopping loop");
         $this->eb->exit();
         $this->running = false;
         return $this;
@@ -943,7 +918,7 @@ class Loop
     {
         $this->running = true;
         if($this->thisProcessInfo->isRootOfHierarchy()){
-            $this->log('dispatch', "Started master process");
+            Logger::log('dispatch', "Started master process");
         }
         pcntl_sigprocmask(SIG_UNBLOCK, []);
         while($this->running) {
@@ -953,19 +928,18 @@ class Loop
             $this->dispatchActions();
         }
         $this->signal(SIGTERM);
-        $this->freeTimersEvents();
-        $this->log('daemon', "Main loop stopped");
+        Logger::log('daemon', "Main loop stopped");
 
         $status = null;
         $rusage = [];
         while(($pid = pcntl_wait($status, WUNTRACED)) > 0){
-            $this->log("Waited for child: %-5d", $pid);
+            Logger::log("Waited for child: %-5d", $pid);
             $this->_handleWaitPid($pid, $status, $rusage);
             $this->dispatchActions();
         }
         $this->thisProcessInfo->free();
         $this->eb->free();
-        $this->log('daemon', "All children exited, bye bye !!!!");
+        Logger::log('daemon', "All children exited, bye bye !!!!");
         exit($this->exitCode);
     }
 }

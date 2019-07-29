@@ -4,9 +4,7 @@ namespace Loop\Core;
 use Loop\Util\Logger;
 
 class ProcessInfo {
-
-    use Logger;
-
+    
     const PROCESS_ST_RUNNING = 0;
     const PROCESS_ST_STOPPED = 1;
     const PROCESS_ST_EXITED = 2;
@@ -94,7 +92,7 @@ class ProcessInfo {
     }
 
     public function addChild(ProcessInfo $child){
-        $this->log('pinfo', 'Add child %-5d', $child->getPid());
+        Logger::log('pinfo', 'Add child %-5d', $child->getPid());
         $this->children[$child->getPid()] = $child;
         return $this;
     }
@@ -125,7 +123,7 @@ class ProcessInfo {
         if(count($pipesToFilter) === 0){
             return false;
         }
-        $this->log('pinfo', 'Free pipes to pids: (%s)', implode(',', array_map(function($p){ return $p->getPid(); }, $pipesToFilter)));
+        Logger::log('pinfo', 'Free pipes to pids: (%s)', implode(',', array_map(function($p){ return $p->getPid(); }, $pipesToFilter)));
         array_walk($pipesToFilter, function(Pipe $p){
             $p->free();
         });
@@ -160,7 +158,7 @@ class ProcessInfo {
     }
 
     public function removeChild(int $pid): ProcessInfo {
-        $this->log('pinfo', 'Remove child %-5d', $pid);
+        Logger::log('pinfo', 'Remove child %-5d', $pid);
         $this->freePipe($pid);
         unset($this->children[$pid]);
         return $this;
@@ -272,7 +270,7 @@ class ProcessInfo {
     }
 
     public function __clone(){
-        $this->log('pinfo', 'Cloning process info with pid %-5d', $this->pid);
+        Logger::log('pinfo', 'Cloning process info with pid %-5d', $this->pid);
         $this->pipes = [];
         $this->children = [];
     }

@@ -4,6 +4,7 @@ use Loop\Core\Action\LoopAction;
 use Loop\Core\Loop;
 use Loop\Core\ProcessInfo;
 use Loop\Protocol\ProcessResolutionProtocolMessage;
+use Loop\Util\Logger;
 
 require_once __DIR__.'/../vendor/autoload.php';
 
@@ -19,7 +20,7 @@ This example demonstrates how the master process can send a message to all of it
 Each process displays the message payload to stdout.
 /*/
 $loop = new \Loop\Core\Loop();
-$loop->setLoggingEnabled(false);
+
 
 $loop->registerActionForTrigger(LoopAction::LOOP_ACTION_PROCESS_CHILD_TERMINATED, true, false, function(Loop $loop, ProcessInfo ...$processes) {
     foreach($processes as $p){

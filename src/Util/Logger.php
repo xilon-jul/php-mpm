@@ -1,12 +1,21 @@
 <?php
 namespace Loop\Util;
 
-trait Logger {
+abstract class Logger {
 
-    private $enableLogger = true;
+    static $enableLogger = false;
 
-    public function log(string $context, string $format, ...$args){
-        if(!$this->enableLogger){
+    public static function enable(): void {
+        self::$enableLogger = true;
+    }
+
+
+    public static function disable(): void {
+        self::$enableLogger = false;
+    }
+
+    public static function log(string $context, string $format, ...$args){
+        if(!self::$enableLogger){
             return;
         }
         $log = sprintf($format, ...$args);
