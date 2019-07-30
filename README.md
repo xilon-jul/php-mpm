@@ -1,4 +1,8 @@
-# Tested with latest libevent version as of now 2.5.3 (Do not compile libevent with asserts)
+# Install version (IMPORTANT)
+
+Tested with latest libevent version as of now 2.5.3 
+ - If you use phread support in libevent do not compile libevent with asserts
+
 # How to test this development
 
 This docker image is based on php 7.3.3 with debug-symbols enabled and core dump configured to log into /tmp directory. 
