@@ -346,11 +346,12 @@ class Loop
     }
 
     private function freeEvents(){
-        $nbTimers = count($this->events);
-        for($i = 0; $i < $nbTimers; $i++){
-            $timer = $this->events[$i];
-            $timer->free();
-            $timer = null;
+        $nbEvents = count($this->events);
+        for($i = 0; $i < $nbEvents; $i++){
+            $evt = $this->events[$i];
+            $evt->del();
+            $evt->free();
+            $evt = null;
         }
         $this->events = [];
     }
@@ -676,6 +677,7 @@ class Loop
             Logger::log('fork', "Ended fork: %-5d", $pid);
             return $pid;
         } else {
+            $this->eb->reInit();
             pcntl_sigprocmask(SIG_BLOCK, []);
             socket_close($pairs[0]);
             $this->freeEvents();

@@ -3,6 +3,7 @@
 use Loop\Core\Action\LoopAction;
 use Loop\Core\Loop;
 use Loop\Protocol\ProcessResolutionProtocolMessage;
+use Loop\Util\Logger;
 
 require_once __DIR__.'/../vendor/autoload.php';
 
