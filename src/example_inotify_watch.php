@@ -27,7 +27,6 @@ if(! ($f2 = fopen('/tmp/file2', 'w+'))){
 }
 
 $loop = new \Loop\Core\Loop();
-$loop->setLoggingEnabled(false);
 
 $cb = function(Loop $loop, $arg) {
     echo posix_getpid(). ' with pathname ' . $arg[0]['pathname'].PHP_EOL;
