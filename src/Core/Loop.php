@@ -10,7 +10,6 @@ use Loop\Core\Listener\LoopEventListener;
 use Loop\Protocol\Factory\ProtocolMessageFactory;
 use Loop\Protocol\ProcessResolutionProtocolMessage;
 use Loop\Protocol\ProtocolBuilder;
-use Loop\Protocol\ProtocolMessage;
 use Loop\Util\Logger;
 
 pcntl_async_signals(true);
@@ -21,7 +20,6 @@ class Loop
      * @var bool $running
      */
     private $running = true;
-    private $shutdown = false;
 
     /**
      * @var ProcessInfo $thisProcessInfo
@@ -53,6 +51,11 @@ class Loop
     private $events = [];
 
     /**
+     * @var callable $shutdownHook
+     */
+    private $shutdownHook = null;
+
+    /**
      * @var \EventBase $base
      */
     private $eb;
@@ -69,7 +72,6 @@ class Loop
     // START EIO ____________________________________________________
     private $eioEvent;
     // END EIO ______________________________________________________
-
 
 
     /**
@@ -422,26 +424,26 @@ class Loop
         // that has coalesce option set to true then hash the data payload
         // and keep the last data payload if same hash occurs more than once
         $args = $messageReceivedAction->getRuntimeArgs();
-        $newRuntimeArgs = [$args[0]];
         $nbArgs = count($args);
         $hashmap = [];
         Logger::log('dispatch', "Message before coalesce action message received %d", $nbArgs);
-        for($i = 1; $i < $nbArgs; $i++){
+        $newRuntimeArgs = [];
+        for($i = 0; $i < $nbArgs; $i++){
             /**
              * @var $argMessage ProcessResolutionProtocolMessage
              */
             $argMessage = $args[$i];
             if($argMessage->getField('coalesce')->getValue() !== 1){
+                $newRuntimeArgs[] = $argMessage;
                 continue;
             }
             $hash = md5($argMessage->getField('data')->getValue());
-            $hashmap[$hash] = $argMessage;
+            if(!isset($hashmap[$hash])){
+                $hashmap[$hash] = true;
+                $newRuntimeArgs[] = $argMessage;
+            }
             Logger::log('dispatch',"Coalesce message with hash %s", $hash);
         }
-
-        array_walk(array_values($hashmap), function($message) use(&$newRuntimeArgs) {
-            $newRuntimeArgs[] = $message;
-        });
         Logger::log('dispatch', "Message after coalesce action message received %d", count($newRuntimeArgs));
         $messageReceivedAction->removeRuntimeArgs();
         $messageReceivedAction->setRuntimeArgs(...$newRuntimeArgs);
@@ -685,12 +687,10 @@ class Loop
                 $this->inotifyEvent->free();
             }
             Logger::log('fork', 'Fork in child context');
-
-
-
             $this->inotifyInit = null;
-            // Reset exitCode
+            // Reset exitCode and shutdown hook
             $this->exitCode = 0;
+            $this->shutdownHook = null;
             // Clear all buffers
             $this->writeBuffers = $this->readBuffers = [];
             // Keep all actions that wish to propagate and remove all triggers
@@ -893,6 +893,14 @@ class Loop
         return $this;
     }
 
+    /**
+     * Set a callable to be invoked before the daemon process exits
+     * @param callable $hook the callable to call before exiting
+     */
+    public function setShutdownHook(callable $hook): Loop {
+        $this->shutdownHook = $hook;
+        return $this;
+    }
 
     /**
      * Ask this loop to stop and free all resources.
@@ -910,6 +918,7 @@ class Loop
         $this->running = false;
         return $this;
     }
+
 
 
 
@@ -942,6 +951,9 @@ class Loop
         $this->thisProcessInfo->free();
         $this->eb->free();
         Logger::log('daemon', "All children exited, bye bye !!!!");
+        if($this->shutdownHook){
+            call_user_func($this->shutdownHook, $this);
+        }
         exit($this->exitCode);
     }
 }

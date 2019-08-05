@@ -10,6 +10,7 @@ namespace Loop\Core\Action;
 
 
 use Loop\Core\Loop;
+use Loop\Util\Logger;
 
 final class LoopAction
 {
@@ -104,11 +105,14 @@ final class LoopAction
     }
 
     public function removeRuntimeArgs(): void {
+        Logger::log('loop_action', 'Removing %d args in existing list', count($this->runtimeArgs));
+
         $this->runtimeArgs = [];
     }
 
     public function setRuntimeArgs(...$args): void
     {
+        Logger::log('loop_action', 'Adding %d args to %d args in existing list', count($args), count($this->runtimeArgs));
         array_push($this->runtimeArgs, ...$args);
     }
 

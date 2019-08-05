@@ -17,7 +17,3 @@ You can do the following to debug a core dump :
 ```bash
 docker run --privileged --ulimit core=10000000 -v $(pwd):/app -w /app -ti itengo/xilon:php7.3.3-fpm-debug bash
 ```
-
-- TODO :
-    * Coalesce message
-    * Event for file change / directory change (via inotify)

@@ -20,6 +20,8 @@ This is the process tree :
 This example demonstrates how the master process can send a message to all of its children every 3 seconds.
 Each process displays the message payload to stdout.
 /*/
+
+Logger::disable();
 $loop = new \Loop\Core\Loop();
 
 $exampleMessage = new ProcessResolutionProtocolMessage();

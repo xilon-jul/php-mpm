@@ -3,6 +3,7 @@ namespace Loop\Protocol\Field;
 
 
 use Loop\Protocol\Exception\ProtocolReadException;
+use Loop\Util\Logger;
 
 class ByteField extends ProtocolField {
 
@@ -13,7 +14,9 @@ class ByteField extends ProtocolField {
 
     public function doPack(): string
     {
-        return pack('c', chr($this->value));
+        $val = $this->value ? 1 : 0;
+        Logger::log('bytefield', 'Packing value %c', $val);
+        return pack('c', $val);
     }
 
     public function doUnpack(string &$bytes): ProtocolField
@@ -28,6 +31,6 @@ class ByteField extends ProtocolField {
 
     public function isEmpty(): bool
     {
-        return !is_string($this->value) || $this->value === null;
+        return $this->value === null;
     }
 }
