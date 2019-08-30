@@ -2,7 +2,7 @@
 
 use Loop\Core\Action\LoopAction;
 use Loop\Core\Loop;
-use Loop\Protocol\ProcessResolutionProtocolMessage;
+use Loop\Core\Message\ProcessResolutionProtocolMessage;
 
 require_once __DIR__.'/../vendor/autoload.php';
 

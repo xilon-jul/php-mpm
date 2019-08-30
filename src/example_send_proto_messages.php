@@ -2,7 +2,6 @@
 
 use Loop\Core\Action\LoopAction;
 use Loop\Core\Loop;
-use Loop\Protocol\ProcessResolutionProtocolMessage;
 use Loop\Util\Logger;
 
 require_once __DIR__.'/../vendor/autoload.php';
@@ -24,7 +23,7 @@ Each process displays the message payload to stdout.
 Logger::disable();
 $loop = new \Loop\Core\Loop();
 
-$exampleMessage = new ProcessResolutionProtocolMessage();
+$exampleMessage = new \Loop\Core\Message\ProcessResolutionProtocolMessage();
 $exampleMessage->getField('destination_label')->setValue('group');
 $exampleMessage->getField('data')->setValue('Test message');
 

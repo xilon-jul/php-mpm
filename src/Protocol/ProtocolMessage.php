@@ -1,14 +1,8 @@
 <?php
 namespace Loop\Protocol;
 
-use Loop\Protocol\Exception\ProtocolReadException;
-use Loop\Protocol\Field\BitField;
-use Loop\Protocol\Field\ByteField;
-use Loop\Protocol\Field\Factory\FieldFactory;
-use Loop\Protocol\Field\Int32Field;
-use Loop\Protocol\Field\ProtocolField;
-
 use Loop\Protocol\Exception\ProtocolException;
+use Loop\Protocol\Field\ProtocolField;
 
 abstract class ProtocolMessage extends ProtocolField implements \Iterator {
 

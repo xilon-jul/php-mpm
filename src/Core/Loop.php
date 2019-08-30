@@ -3,13 +3,14 @@
 namespace Loop\Core;
 
 use Loop\Core\Action\LoopAction;
-use Loop\Core\Event\EventInfo;
-use Loop\Core\Event\IPCSocketRoute;
-use Loop\Core\Event\SocketPairEventInfo;
-use Loop\Core\Listener\LoopEventListener;
+use Loop\Core\Message\MessageHandler;
+use Loop\Core\Message\ProcessResolutionProtocolMessage;
+use Loop\Protocol\Exception\ProtocolException;
+use Loop\Protocol\Exception\ProtocolFactoryException;
+use Loop\Protocol\Exception\ProtocolNotFoundException;
 use Loop\Protocol\Factory\ProtocolMessageFactory;
-use Loop\Protocol\ProcessResolutionProtocolMessage;
 use Loop\Protocol\ProtocolBuilder;
+use Loop\Protocol\ProtocolMessage;
 use Loop\Util\Logger;
 
 pcntl_async_signals(true);
@@ -60,7 +61,16 @@ class Loop
      */
     private $eb;
 
+    /**
+     * @var int $exitCode
+     */
     private $exitCode = 0;
+
+
+    /**
+     * @var array MessagePreparer[] a list of message preparers
+     */
+    private $messageHandlers = [];
 
     // START INOTIFY ____________________________________________________
     private $inotifyInit = null;
@@ -68,11 +78,6 @@ class Loop
     private $inotifyWatches = [];
     private $inotifyCallback = null;
     // END INOTIFY ______________________________________________________
-
-    // START EIO ____________________________________________________
-    private $eioEvent;
-    // END EIO ______________________________________________________
-
 
     /**
      * @var int default timeout to quit loop so that it forces action to be dispatched
@@ -128,6 +133,7 @@ class Loop
             }
         ));
 
+        $this->_installDefaultMessageHandler();
     }
 
     private function _registerSighandlers(): void
@@ -145,6 +151,14 @@ class Loop
         $this->protocolBuilder->setReadCb(ProcessResolutionProtocolMessage::class, function (ProcessResolutionProtocolMessage $message) {
             $this->_ipcMessageHandler($message);
         });
+    }
+
+    /**
+     * Gets the protocol builder to allow custom message handling
+     * @return ProtocolBuilder
+     */
+    public function getProtocolBuilder(): ProtocolBuilder {
+        return $this->protocolBuilder;
     }
 
     /**
@@ -215,7 +229,7 @@ class Loop
             $this->setTriggerFlag(LoopAction::LOOP_ACTION_PROCESS_CHILD_TERMINATED, true);
             $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_CHILD_TERMINATED, $processInfo);
         } elseif (pcntl_wifstopped($status)) {
-            $processInfo->setStatus(ProcessInfo::PROCESS_ST_STOPPED)
+            $processInfo->setStatus(ProcessInfo::PROCESS_ST_STOPPED, sprintf("Process has been stopped"))
                 ->setResourceUsage($rusage);
             $this->setTriggerFlag(LoopAction::LOOP_ACTION_PROCESS_STOPPED, true);
             $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_PROCESS_STOPPED, $processInfo);
@@ -367,44 +381,110 @@ class Loop
         self::$DEFAULT_TIMEOUT = $timeout;
     }
 
-
     /**
-     * This method is for IPC accross the process tree. You can send message
-     * to one ore more processes. You must install an handler / action for the trigger name
-     * (LoopAction::LOOP_ACTION_MESSAGE_RECEIVED) to handle the message
-     * @see LoopAction::LOOP_ACTION_MESSAGE_RECEIVED
-     * @param ProcessResolutionProtocolMessage $message
-     * @return Loop
-     * @throws \Loop\Protocol\Exception\ProtocolException
+     * Adds a full duplex socket event
+     * @param $fd the socket to write to and read from
+     * @param string $class string class name instance of ProtocolMessage
+     * @p
+     * @param callable $readCallback the callback to be invoked a message is read
+     * @throws \Exception
      */
-    public function submit(ProcessResolutionProtocolMessage $message): Loop
-    {
-        if (!$message->getField('destination_pid')->getValue() && !$message->getField('destination_label')->getValue()) {
-            throw new \Exception("Message is missing a destination field _pid or _label");
+    public function addSocketEvent($fd, string $class, MessageHandler $handler = null){
+        if(false === socket_set_nonblock($fd)){
+            throw new \RuntimeException("Cannot set socket to non blocking mode");
         }
-        $targetPID = $message->getField('destination_pid')->getValue();
-        $targetLabel = $message->getField('destination_label')->getValue();
-
-
-        $targets = array_filter($this->thisProcessInfo->getPipes(), function ($pipe) use ($message, $targetPID, $targetLabel) {
-            $cond = $pipe->getPid() === $targetPID || in_array($targetLabel, $pipe->getLabels(), true) !== false;
-            return $cond;
+        if(null === $handler){
+            // Set default handler if null
+            $handler = $this->messageHandlers[ProcessResolutionProtocolMessage::class];
+        }
+        $this->setMessageClassHandler($class, $handler);
+        $this->protocolBuilder->setReadCb($class, function(ProtocolMessage $message){
+            $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, $message);
+            $this->setTriggerFlag(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true);
         });
+        $read = null;
+        $read = new \Event($this->eb, $fd, \Event::READ | \Event::PERSIST, function ($fd, int $what, $args) use (&$read) {
+            $this->_readSocket($fd, $what, $read, $args);
+        });
+        $write = new \Event($this->eb, $fd, \Event::WRITE, function ($fd, int $what, $args) use (&$write) {
+            $this->_write($fd, $what, $write, $args);
+        });
+        $this->thisProcessInfo->addPipe(new Pipe(posix_getpid(), $fd, $read, $write));
+        $read->add(self::$DEFAULT_TIMEOUT);
+        array_push($this->events, $read, $write);
+    }
 
-        $message->getField('sent_at')->setValue(time());
-        // Message is not a direct message to a parent or child process
-        if (count($targets) === 0) {
-            $targets = $this->thisProcessInfo->getPipes();
+
+    public function submit(ProtocolMessage $message): Loop {
+        $clazz = get_class($message);
+        /**
+         * @var $processor MessageHandler
+         */
+        $processor = $this->messageHandlers[$clazz];
+        if(!$processor){
+            throw new \RuntimeException(sprintf("No message handler set for class %s", $clazz));
         }
+        $processor->guardMessageIsValid($message);
+        $targets = $processor->getPipeCandidates($message, $this->getProcessInfo());
+
         foreach ($targets as $pipe) {
             $routedMessage = clone $message;
-            $routedMessage->getField('previous_pid')->setValue(posix_getpid());
-            $routedMessage->getField('source_pid')->setValue(posix_getpid());
-            $fdNumber = (int) sprintf('%d', $pipe->getFd());
-            $this->writeBuffers[$fdNumber][] = $this->protocolBuilder->toByteStream($routedMessage);
-            ($pipe->getEwrite())->add();
+            $processor->preSubmit($routedMessage);
+            $this->_internalSubmit($pipe, $routedMessage);
         }
         return $this;
+    }
+
+    private function _installDefaultMessageHandler(){
+        $this->setMessageClassHandler(ProcessResolutionProtocolMessage::class, new class() implements MessageHandler {
+
+            function guardMessageIsValid(ProtocolMessage $message): void
+            {
+                if (!$message->getField('destination_pid')->getValue() && !$message->getField('destination_label')->getValue()) {
+                    throw new \Exception("Message is missing a destination field _pid or _label");
+                }
+            }
+
+            function getPipeCandidates(ProtocolMessage $message, ProcessInfo $processInfo): array
+            {
+                $targetPID = $message->getField('destination_pid')->getValue();
+                $targetLabel = $message->getField('destination_label')->getValue();
+
+
+                $targets = array_filter($processInfo->getPipes(), function (Pipe $pipe) use ($message, $targetPID, $targetLabel) {
+                    $cond = $pipe->getPid() === $targetPID || in_array($targetLabel, $pipe->getLabels(), true) !== false;
+                    return $cond;
+                });
+                // Message is not a direct message to a parent or child process
+                if (count($targets) === 0) {
+                    $targets = $processInfo->getPipes();
+                }
+                return $targets;
+            }
+
+            function preSubmit(ProtocolMessage $message): void
+            {
+                $message->getField('sent_at')->setValue(time());
+                $message->getField('previous_pid')->setValue(posix_getpid());
+                $message->getField('source_pid')->setValue(posix_getpid());
+            }
+        });
+    }
+
+
+    private function setMessageClassHandler(string $class, MessageHandler $messagePreparer): Loop {
+        if(isset($this->messageHandlers[$class])){
+            throw new \InvalidArgumentException(sprintf("Preparer class %s exists", $class));
+        }
+        $this->messageHandlers[$class] = $messagePreparer;
+        return $this;
+    }
+
+
+    private function _internalSubmit(Pipe $pipe, ProtocolMessage $message): void {
+        $fdNumber = (int) sprintf('%d', $pipe->getFd());
+        $this->writeBuffers[$fdNumber][] = $this->protocolBuilder->toByteStream($message);
+        ($pipe->getEwrite())->add();
     }
 
     /**
@@ -433,14 +513,21 @@ class Loop
              * @var $argMessage ProcessResolutionProtocolMessage
              */
             $argMessage = $args[$i];
-            if($argMessage->getField('coalesce')->getValue() !== 1){
+            try {
+                if($argMessage->getField('coalesce')->getValue() !== 1){
+                    $newRuntimeArgs[] = $argMessage;
+                    continue;
+                }
+                $hash = md5($argMessage->getField('data')->getValue());
+                if(!isset($hashmap[$hash])){
+                    $hashmap[$hash] = true;
+                    $newRuntimeArgs[] = $argMessage;
+                }
+            }
+            catch (ProtocolException $e){
+                // Protocol does not support coalescent option
                 $newRuntimeArgs[] = $argMessage;
                 continue;
-            }
-            $hash = md5($argMessage->getField('data')->getValue());
-            if(!isset($hashmap[$hash])){
-                $hashmap[$hash] = true;
-                $newRuntimeArgs[] = $argMessage;
             }
             Logger::log('dispatch',"Coalesce message with hash %s", $hash);
         }
@@ -449,8 +536,9 @@ class Loop
         $messageReceivedAction->setRuntimeArgs(...$newRuntimeArgs);
     }
 
+
     /**
-     * Callback invoked when the protocol has succeeded in decoding a message
+     * Callback invoked when the protocol has succeeded in decoding a ProcessResolutionProtocolMessage instance message
      * @param ProcessResolutionProtocolMessage $message
      * @throws \Loop\Protocol\Exception\ProtocolException
      */
@@ -489,6 +577,14 @@ class Loop
         };
     }
 
+    /**
+     * Read as many bytes as available for this file descriptor.
+     * Eventually sets trigger flags if a message is ready for being delivered, or if a endpoint channel gets closed
+     * @param $fd
+     * @param int $what
+     * @param \Event $ev
+     * @param $args
+     */
     private function _readSocket($fd, int $what, \Event $ev, $args)
     {
         if($what & \Event::TIMEOUT){
@@ -503,7 +599,8 @@ class Loop
             if (false === ($bytes = @socket_recv($fd, $buffer, 8092, 0))) {
                 $errnum = socket_last_error($fd);
                 $this->readBuffers[$intFd] .= $buffer;
-                Logger::log('socket',"Socket error: %d - %s", $errnum, socket_strerror($errnum));
+                $strerr = socket_strerror($errnum);
+                Logger::log('socket',"Socket error: %d - %s", $errnum, $strerr);
                 switch ($errnum) {
                     case 0:
                         Logger::log('socket',"Socket recv has failed but error code is success");
@@ -512,9 +609,13 @@ class Loop
                         Logger::log('socket',"Socket egain");
                         break 2;
                     case SOCKET_ECONNRESET:
-                        break;
+                        Logger::log('socket',"Socket econnreset");
+                        break 2;
+                    case SOCKET_ECONNREFUSED:
+                        Logger::log('socket',"Socket econnrefused");
+                        break 2;
                     default:
-                        throw new \RuntimeException("Unhandled socket error");
+                        throw new \RuntimeException(sprintf("Unhandled socket error %d - %s", $errnum, $strerr));
                 }
             }
             $this->readBuffers[$intFd] .= $buffer;
@@ -549,22 +650,34 @@ class Loop
             Logger::log('socket', "Read %d bytes from fd %d", strlen($buffer), $fd);
         }
         try {
-            Logger::log('socket', 'Try read from protocol message with buffer: %s', $this->readBuffers[$intFd]);
+            Logger::log('socket', 'Try read from protocol message with buffer(%d): %s', strlen($this->readBuffers[$intFd]), $this->readBuffers[$intFd]);
             while(true){
                 $this->protocolBuilder->read($this->readBuffers[$intFd]);
                 Logger::log('socket', 'Message read');
             }
-        } catch (\Exception $e) {
+        }
+        catch (ProtocolFactoryException $e){
+            Logger::log('socket', 'Protocol found but a field type cant be found !');
+            $this->readBuffers[$intFd] = '';
+        }
+        catch (ProtocolNotFoundException $e){
+            Logger::log('socket', 'Protocol with id %d not found, did you forget to register it ?', $e->getProtocolId());
+            $this->readBuffers[$intFd] = '';
+        }
+        catch (\Exception $e) {
             // Do nothing wait until more bytes
             Logger::log('socket', "Protocol exception %s", $e->getMessage());
         }
     }
 
-    public function __clone()
-    {
-        // TODO: Implement __clone() method.
-    }
-
+    /**
+     * Asynchronous write callback when fd is ready for writing. Write as maximum bytes
+     * as possible
+     * @param $fd
+     * @param int $what
+     * @param \Event $ev
+     * @param $args
+     */
     private function _write($fd, int $what, \Event $ev, $args)
     {
 
@@ -587,7 +700,7 @@ class Loop
                 Logger::log('socket', '_write has failed with error code: %d / %s', $error , socket_strerror($error));
                 break;
             }
-            Logger::log('socket', 'Wrote %d bytes', $writtenBytes);
+            Logger::log('socket', 'Wrote %d bytes to fd %d', $writtenBytes, $intFd);
             if ($writtenBytes === 0) {
                 break;
             }
@@ -604,7 +717,6 @@ class Loop
             $ev->del();
         }
     }
-
 
     /**
      * Parametrized each action by their name, which means that all occurences of a trigger would be prepared by appending parameters
@@ -625,6 +737,8 @@ class Loop
            }
         });
     }
+
+
 
     /**
      * Is the main loop running
@@ -718,6 +832,7 @@ class Loop
             $pInfo->addPipe(
                 new Pipe(posix_getppid(), $pairs[1], $read, $write, ...$pInfo->getParentProcessInfo()->getLabels())
             );
+            $pInfo->setStatus(ProcessInfo::PROCESS_ST_RUNNING);
             $this->thisProcessInfo = $pInfo;
             if (is_callable($childCallback)) {
                 call_user_func($childCallback, $this);
@@ -885,6 +1000,11 @@ class Loop
         $this->stop();
     }
 
+    /**
+     * Send a signal to all children processes
+     * @param int $signal signal to send
+     * @return Loop this instance
+     */
     public function signal(int $signal): Loop {
         array_walk($this->getProcessInfo()->getChildren(), function(ProcessInfo $childInfo) use($signal) {
             Logger::log('signal', "Sending signal %d to %-5d", $signal, $childInfo->getPid());
@@ -920,8 +1040,6 @@ class Loop
     }
 
 
-
-
     /**
      * Starts the daemon loop
      */
@@ -946,8 +1064,8 @@ class Loop
         while(($pid = pcntl_wait($status, WUNTRACED)) > 0){
             Logger::log("Waited for child: %-5d", $pid);
             $this->_handleWaitPid($pid, $status, $rusage);
-            $this->dispatchActions();
         }
+        $this->dispatchActions();
         $this->thisProcessInfo->free();
         $this->eb->free();
         Logger::log('daemon', "All children exited, bye bye !!!!");

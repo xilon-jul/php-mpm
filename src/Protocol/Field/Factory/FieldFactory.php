@@ -3,6 +3,7 @@ namespace Loop\Protocol\Field\Factory;
 
 use Loop\Protocol\DumpProtocol;
 use Loop\Protocol\DumpPrototypeMessage;
+use Loop\Protocol\Exception\ProtocolFactoryException;
 use Loop\Protocol\Factory\ProtocolMessageFactory;
 use Loop\Protocol\Field\ByteField;
 use Loop\Protocol\Field\Int32Field;
@@ -48,7 +49,7 @@ final class FieldFactory {
             case ProtocolField::FIELD_TYPE_BYTE:
                 return new ByteField;
             default:
-                throw new \InvalidArgumentException("No such field type " . $type);
+                throw new ProtocolFactoryException("No such field type " . $type);
         }
     }
 }

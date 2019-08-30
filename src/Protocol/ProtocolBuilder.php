@@ -2,6 +2,7 @@
 namespace Loop\Protocol;
 
 use Loop\Protocol\Exception\ProtocolException;
+use Loop\Protocol\Exception\ProtocolNotFoundException;
 use Loop\Protocol\Exception\ProtocolReadException;
 use Loop\Protocol\Factory\ProtocolMessageFactory;
 use Loop\Protocol\Field\Factory\FieldFactory;
@@ -39,9 +40,6 @@ final class ProtocolBuilder {
         return $this;
     }
 
-
-
-
     public function toByteStream(ProtocolMessage $protocolMessage): string {
         $bytes = "";
         /**
@@ -60,7 +58,6 @@ final class ProtocolBuilder {
 
         return $bytes . $dataBytes;
     }
-
 
     final private function getProtoHeaderLen(): int {
         static $len = 0;
@@ -111,7 +108,7 @@ final class ProtocolBuilder {
         $nextBytes = substr($bytes, 5);
         if(!$field->isAnonymous() && $nbBytes >= 9){
             $nameHeader = unpack('Vlen', $nextBytes);
-            if($nbBytes < $nameHeader['len'] + 5 + 5) {
+            if($nbBytes < $nameHeader['len'] + 9) {
                 throw new ProtocolReadException("Not enough bytes to read protocol field name");
             }
             $nameHeader = unpack($nextBytes, sprintf('Vlen/a%sname', $nameHeader['len']));
@@ -146,10 +143,18 @@ final class ProtocolBuilder {
         }
     }
 
+    /**
+     * @param string $bytes
+     * @return ProtocolMessage
+     * @throws Exception\ProtocolNotFoundException
+     * @throws ProtocolException
+     * @throws ProtocolReadException
+     * @throws ProtocolNotFoundException
+     */
     public function read(string &$bytes): ProtocolMessage {
         if($this->readBytes === -1){
             list($protocolId, $protocolVersion, $dataLen) = $this->readManyOrDie($bytes, 3);
-            $this->protocol = ProtocolMessageFactory::getInstance()->getRegisteredProtocol($protocolId->getValue(), $protocolVersion->getValue());
+            $this->protocol = ProtocolMessageFactory::getInstance()->getRegisteredProtocol((int)$protocolId->getValue(), (int)$protocolVersion->getValue());
             $this->dataLen = $dataLen->getValue();
             $this->readBytes = 0;
         }

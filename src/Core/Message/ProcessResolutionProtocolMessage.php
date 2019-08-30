@@ -1,11 +1,10 @@
 <?php
-namespace Loop\Protocol;
+namespace Loop\Core\Message;
 
-use Loop\Protocol\Field\BitField;
 use Loop\Protocol\Field\ByteField;
 use Loop\Protocol\Field\Int32Field;
 use Loop\Protocol\Field\VariableBytesField;
-use Loop\Protocol\Field\WrapProtocolField;
+use Loop\Protocol\ProtocolMessage;
 
 class ProcessResolutionProtocolMessage extends ProtocolMessage {
 

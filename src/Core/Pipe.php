@@ -12,6 +12,12 @@ namespace Loop\Core;
 
 use Loop\Util\Logger;
 
+/**
+ * Class Pipe
+ * A pipe is a container that aggregates a file descriptor with both read and write event (as defined in Event in libev) and it also contains a process identifier and a set of string labels.
+ * We consider that we read from this process id and write  to this process id
+ * @package Loop\Core
+ */
 class Pipe
 {
 

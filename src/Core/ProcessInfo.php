@@ -20,7 +20,6 @@ class ProcessInfo {
     ];
 
     private $availibility = self::AVAIL_READY;
-
     private $parent = null;
     private $children = [];
     private $labels = [];
@@ -32,6 +31,8 @@ class ProcessInfo {
     private $idleTime;
     private $lastStatusModifiedTime;
     private $rusage = [];
+
+    private $extas = [];
 
     /**
      * @var $pipes Pipe[]
@@ -269,9 +270,28 @@ class ProcessInfo {
         return $this->status === self::PROCESS_ST_RUNNING;
     }
 
+    public function addExtra(string $key, $data): ProcessInfo {
+        $this->extas[$key] = $data;
+    }
+
+    public function removeExtra(string $key): bool {
+        if(isset($this->extas[$key])){
+            unset($this->extas[$key]);
+            return true;
+        }
+        return false;
+    }
+
+    public function __sleep(): array
+    {
+        return [
+            'availibility', 'labels', 'isRootOfHierarchy', 'pid', 'status', 'statusReason', 'startTime', 'idleTime', 'lastStatusModifiedTime', 'rusage', 'extras'];
+    }
+
     public function __clone(){
         Logger::log('pinfo', 'Cloning process info with pid %-5d', $this->pid);
         $this->pipes = [];
+        $this->extas = [];
         $this->children = [];
     }
 

@@ -12,7 +12,6 @@ abstract class ProtocolField {
     const FIELD_TYPE_INT32 = 1;
     const FIELD_TYPE_WRAP_PROT = 2;
     const FIELD_TYPE_BYTE = 4;
-
     const FIELD_IS_ANONYMOUS = 8;
 
     protected $isProtected = false;
