@@ -14,10 +14,9 @@ class TestTask extends AbstractDefaultTask {
     {
         echo 'Task '.PHP_EOL;
         sleep(2);
+        return null;
     }
 };
-
-
 
 
 $processPool = new ProcessPool(new FixedPoolStrategy(5), new FirstAvailableDispatchStrategy(0.5));

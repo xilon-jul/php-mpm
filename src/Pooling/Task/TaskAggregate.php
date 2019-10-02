@@ -40,7 +40,7 @@ final class TaskAggregate
     /**
      * @return mixed
      */
-    public function getProcessInstance()
+    public function getProcessInstance(): ProcessInfo
     {
         return $this->processInstance;
     }
@@ -96,8 +96,4 @@ final class TaskAggregate
         $this->endedAt = new \DateTime('now', new \DateTimeZone('utc'));
     }
 
-    public function __sleep()
-    {
-        $this->processInstance = null;
-    }
 }

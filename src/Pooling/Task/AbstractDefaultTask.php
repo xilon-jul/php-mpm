@@ -19,7 +19,7 @@ abstract class AbstractDefaultTask implements Task
     public function __construct(string $name, TaskExecutionDependency ...$dependencies)
     {
         $this->name = $name;
-        $this->addDependencies($dependencies);
+        $this->addDependencies(...$dependencies);
     }
 
     public function addDependencies(TaskExecutionDependency ...$dependencies): void {

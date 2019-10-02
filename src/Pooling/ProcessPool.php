@@ -106,7 +106,8 @@ class ProcessPool
         $nbQueuedTask = $this->getNumberQueuedTask();
         $this->processPoolLifecycleStrategy->onPreDispatch($this);
         $it = 0;
-        while($it++ < $nbQueuedTask){;
+        while($it++ < $nbQueuedTask){
+            echo 'Try dispatch with counter ' . $it . PHP_EOL;
             $taskAggregate = array_shift($this->taskQueue);
             if(!$this->canRunTask($taskAggregate->getTask())){
                 // Add task at the end
@@ -114,9 +115,10 @@ class ProcessPool
                 continue;
             }
             $this->processPoolLifecycleStrategy->onTaskPreSubmit($this);
-            $worker = $this->taskDistributionStrategy->distribute(array_values($this->loop->getProcessInfo()->getChildren()));
+            $worker = $this->taskDistributionStrategy->distribute(...array_values($this->loop->getProcessInfo()->getChildren()));
             // No worker is available, stop dispatch
             if(!$worker){
+                echo 'No worker available ....'.PHP_EOL;
                 array_push($this->taskQueue, $taskAggregate);
                 return;
             }
@@ -165,6 +167,10 @@ class ProcessPool
                    return ! ($agg->getTask()->name() ===  $taskAggregate->getTask()->name() && $taskAggregate->getInstanceId() === $agg->getInstanceId());
                 }));
                 $this->taskTerminated[] = $taskAggregate;
+                $this->loop->getProcessInfo()->getProcessInfo($taskAggregate->getProcessInstance()->getPid())->setAvailable(true);
+                $taskAggregate->getProcessInstance()->getPid();
+                echo 'Task terminated ' . count($this->taskTerminated) . PHP_EOL;
+
             }
 
         }, function(){
