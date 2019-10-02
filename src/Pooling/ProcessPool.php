@@ -12,11 +12,12 @@ namespace Loop\Pooling;
 use Cron\CronExpression;
 use Loop\Core\Action\LoopAction;
 use Loop\Core\Loop;
+use Loop\Core\Message\ProcessResolutionProtocolMessage;
 use Loop\Pooling\Strategy\ProcessPoolLifecycleStrategy;
 use Loop\Pooling\Strategy\TaskDistributionStrategy;
+use Loop\Pooling\Task\Dependency\TaskExecutionDependency;
 use Loop\Pooling\Task\Task;
 use Loop\Pooling\Task\TaskAggregate;
-use Loop\Protocol\ProcessResolutionProtocolMessage;
 
 class ProcessPool
 {
@@ -55,6 +56,10 @@ class ProcessPool
         $this->processPoolLifecycleStrategy = $processPoolLifecycleStrategy;
     }
 
+    /**
+     * Adds one or more tasks to the execution queue
+     * @param Task ...$tasks
+     */
     public function submit(Task ...$tasks){
         $taskList = array_map(function(Task $t){
             return new TaskAggregate($t);
@@ -62,29 +67,52 @@ class ProcessPool
         array_push($this->taskQueue, ...$taskList);
     }
 
-    public function getQueuedTask(): int {
-        return count($this->taskQueue);
-    }
 
-    private function getDueTask(): array {
-        return array_filter($this->taskQueue, function(TaskAggregate $taskAggregate){
-            $task = $taskAggregate->getTask();
-            return !$task->isPeriodic() ||
-                CronExpression::factory($task->periodicity())->isDue();
+    public function getTaskByStatus(int $taskStatus): array {
+        return array_filter($this->taskTerminated, function(TaskAggregate $agg) use ($taskStatus) {
+            return $agg->getTaskResult()->getStatus() === $taskStatus;
         });
     }
 
+
     /**
-     * Retrieves the task that are due at current date, and try to dispatch
-     * them to available workers
+     * Gets the number of queued task waiting to be executed
+     * @return int
+     */
+    public function getNumberQueuedTask(): int {
+        return count($this->taskQueue);
+    }
+
+    /**
+     * Checks whether all task dependencies are fullfilled
+     * @param Task $task the task we want to check for deps
+     * @return bool if all deps cond are met
+     */
+    private function canRunTask(Task $task): bool {
+        $canTaskRun = true;
+        array_walk($task->getDependencies(), function(TaskExecutionDependency $dependency) use (&$canTaskRun, $task){
+            $canTaskRun &= $dependency->isFullfill($this, $task);
+        });
+        return $canTaskRun;
+    }
+
+
+
+    /**
+     * Traverses the execution queue and for all task whose dependencies are fullfilled, give them to the distribution strategy
      * @throws \Loop\Protocol\Exception\ProtocolException
      */
     private function dispatch(): void {
+        $nbQueuedTask = $this->getNumberQueuedTask();
         $this->processPoolLifecycleStrategy->onPreDispatch($this);
-        /**
-         * @var $taskAggregate TaskAggregate
-         */
-        while(($taskAggregate = array_shift($this->taskQueue) !== false)){
+        $it = 0;
+        while($it++ < $nbQueuedTask){;
+            $taskAggregate = array_shift($this->taskQueue);
+            if(!$this->canRunTask($taskAggregate->getTask())){
+                // Add task at the end
+                array_push($this->taskQueue);
+                continue;
+            }
             $this->processPoolLifecycleStrategy->onTaskPreSubmit($this);
             $worker = $this->taskDistributionStrategy->distribute(array_values($this->loop->getProcessInfo()->getChildren()));
             // No worker is available, stop dispatch
@@ -92,9 +120,9 @@ class ProcessPool
                 array_push($this->taskQueue, $taskAggregate);
                 return;
             }
-
             $taskAggregate->setProcessInstance($worker);
             $worker->setAvailable(false);
+            $this->taskRunning[] = $taskAggregate;
             // We have a worker available, send the task to elected worker
             $taskMessage = new ProcessResolutionProtocolMessage();
             $taskMessage->getField('data')->setValue(serialize($taskAggregate));
@@ -133,6 +161,9 @@ class ProcessPool
                  * @var $taskAggregate TaskAggregate
                  */
                 $taskAggregate = unserialize($m->getField('data')->getValue());
+                $this->taskRunning = array_values(array_filter($this->taskRunning, function(TaskAggregate $agg) use($taskAggregate) {
+                   return ! ($agg->getTask()->name() ===  $taskAggregate->getTask()->name() && $taskAggregate->getInstanceId() === $agg->getInstanceId());
+                }));
                 $this->taskTerminated[] = $taskAggregate;
             }
 
@@ -149,9 +180,4 @@ class ProcessPool
         $this->loop->loop();
     }
 
-    public function getTaskByStatus(int $taskStatus): array {
-        return array_filter($this->taskTerminated, function(TaskAggregate $agg) use ($taskStatus) {
-           return $agg->getTaskResult()->getStatus() === $taskStatus;
-        });
-    }
 }

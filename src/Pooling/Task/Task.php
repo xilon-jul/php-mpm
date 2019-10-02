@@ -9,10 +9,23 @@
 namespace Loop\Pooling\Task;
 
 
+use Loop\Pooling\Task\Dependency\TaskExecutionDependency;
+
 interface Task
 {
-    function isPeriodic(): bool;
-    function periodicity(): ?string;
+    function addDependencies(TaskExecutionDependency ...$dependencies): void;
+
+
+    function getDependencies(): array;
+
+    /**
+     * @return string the task name
+     */
     function name(): string;
+
+    /**
+     * Task runtime code executed inside a process
+     * @return TaskResult|null the task result
+     */
     function execute(): ?TaskResult;
 }

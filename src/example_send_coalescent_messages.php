@@ -16,7 +16,7 @@ This is the process tree :
           P1
 
 Every 1/2 seconds, the master process send a message 'test' to its only child. The child it self simulates a task that takes 4 seconds.
-If a message was not coalescent, the child process would receive 8 messages at each dispatch, otherwise it only receives a single message.
+If a message were not coalescent, the child process would receive 8 messages at each dispatch, otherwise it only receives a single message.
 The simple message on the contrary is not coalescent, so at each dispatch, the child process receives 8 of its occurences
 /*/
 

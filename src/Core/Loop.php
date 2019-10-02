@@ -386,7 +386,6 @@ class Loop
      * @param $fd the socket to write to and read from
      * @param string $class string class name instance of ProtocolMessage
      * @p
-     * @param callable $readCallback the callback to be invoked a message is read
      * @throws \Exception
      */
     public function addSocketEvent($fd, string $class, MessageHandler $handler = null){
@@ -397,7 +396,13 @@ class Loop
             // Set default handler if null
             $handler = $this->messageHandlers[ProcessResolutionProtocolMessage::class];
         }
-        $this->setMessageClassHandler($class, $handler);
+        try {
+            $this->setMessageClassHandler($class, $handler);
+        }
+        catch(\Exception $e){
+            // Ok nevermind
+        }
+        // Assign read cb for this type of message
         $this->protocolBuilder->setReadCb($class, function(ProtocolMessage $message){
             $this->prepareActionForRuntime(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, $message);
             $this->setTriggerFlag(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true);

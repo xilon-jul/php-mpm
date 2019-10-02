@@ -1,17 +1,10 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: jpons
- * Date: 2019-08-06
- * Time: 12:24
- */
-
 namespace Loop\Pooling\Task;
 
 
 use Loop\Core\ProcessInfo;
 
-class TaskAggregate
+final class TaskAggregate
 {
     private $startedAt;
     private $endedAt;

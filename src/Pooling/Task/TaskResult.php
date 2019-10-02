@@ -43,6 +43,4 @@ class TaskResult
     {
         return $this->result;
     }
-
-
 }
