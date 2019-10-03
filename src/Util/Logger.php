@@ -17,7 +17,9 @@ abstract class Logger {
     }
 
     private static function shouldLog(string $context): bool {
-        return self::$enableLogger === true && (isset(self::$logContextList[$context]) || count(self::$logContextList) === 0);
+        return self::$enableLogger === true && (
+            isset(self::$logContextList[$context]) || count(self::$logContextList) === 0
+        );
     }
 
     public static function disable(): void {
@@ -25,7 +27,7 @@ abstract class Logger {
     }
 
     public static function log(string $context, string $format, ...$args){
-        if(!self::shouldLog($context)){
+        if(false === self::shouldLog($context)){
             return;
         }
         $log = sprintf($format, ...$args);

@@ -11,17 +11,42 @@ namespace Loop\Pooling\Task\Dependency;
 use Cron\CronExpression;
 use Loop\Pooling\ProcessPool;
 use Loop\Pooling\Task\Task;
+use Loop\Util\Logger;
 
 class PeriodicExecutionDependency implements TaskExecutionDependency
 {
     private $periodicExpression;
+    private $cronExpression;
+    /**
+     * @var $nextRunDate \DateTime
+     */
+    private $nextRunDate = null;
 
-    public function __construct(?string $periodicExpression)
+    public function __construct(string $periodicExpression)
     {
         $this->periodicExpression = $periodicExpression;
+        $this->cronExpression = CronExpression::factory($this->periodicExpression);
+        $this->nextRunDate = $this->cronExpression->getPreviousRunDate();
+    }
+
+    public function onTaskExecuted(ProcessPool $pool): void
+    {
+        // TODO: Implement onTaskExecuted() method.
     }
 
     function isFullfill(ProcessPool $pool, Task $task): bool {
-        return null === $this->periodicExpression ? true : CronExpression::factory($this->periodicExpression)->isDue();
+        $nowDate = new \DateTime('now', new \DateTimeZone('utc'));
+        Logger::log(ProcessPool::$CONTEXT, 'Task %s next run date = %s', $task->name(), $this->nextRunDate->format('Y-m-d H:i:s'));
+        if($nowDate->getTimestamp() <=  $this->nextRunDate->getTimestamp()){
+            return false;
+        }
+        $this->nextRunDate = $this->cronExpression->getNextRunDate($nowDate);
+        return $this->cronExpression->isDue();
     }
+
+    public function isPermanent(): bool
+    {
+        return true;
+    }
+
 }

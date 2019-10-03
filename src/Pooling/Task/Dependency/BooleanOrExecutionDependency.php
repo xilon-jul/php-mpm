@@ -8,31 +8,8 @@
 
 namespace Loop\Pooling\Task\Dependency;
 
-
-
-use Loop\Pooling\ProcessPool;
-use Loop\Pooling\Task\Task;
-
-class BooleanOrExecutionDependency implements TaskExecutionDependency
+class BooleanOrExecutionDependency extends BooleanExecutionDependency
 {
-    private $operands = [];
+    protected $returnOn = true;
 
-    public function __construct(TaskExecutionDependency ...$operands)
-    {
-        $this->operands = $operands;
-    }
-
-    function isFullfill(ProcessPool $pool, Task $task): bool {
-        $i = 0;
-        $nbOperands = count($this->operands);
-        if(true === $this->operands[$i++]->isFullfill($pool, $task)){
-            return true;
-        }
-        for(; $i < $nbOperands; $i++){
-            if($this->operands[$i++]->isFullfill($pool, $task) === true){
-                return true;
-            }
-        }
-        return false;
-    }
 }

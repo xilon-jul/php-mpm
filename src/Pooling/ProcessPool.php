@@ -9,7 +9,6 @@
 namespace Loop\Pooling;
 
 
-use Cron\CronExpression;
 use Loop\Core\Action\LoopAction;
 use Loop\Core\Loop;
 use Loop\Core\Message\ProcessResolutionProtocolMessage;
@@ -18,9 +17,12 @@ use Loop\Pooling\Strategy\TaskDistributionStrategy;
 use Loop\Pooling\Task\Dependency\TaskExecutionDependency;
 use Loop\Pooling\Task\Task;
 use Loop\Pooling\Task\TaskAggregate;
+use Loop\Util\Logger;
 
 class ProcessPool
 {
+
+    public static $CONTEXT = 'pool';
 
     /**
      * @var ProcessPoolLifecycleStrategy $processPoolLifecycleStrategy
@@ -104,21 +106,22 @@ class ProcessPool
      */
     private function dispatch(): void {
         $nbQueuedTask = $this->getNumberQueuedTask();
+        Logger::log(self::$CONTEXT, 'Number task (running | queued | terminated : %-3d | %-3d | %-3d )', count($this->taskRunning), $nbQueuedTask, count($this->taskTerminated));
         $this->processPoolLifecycleStrategy->onPreDispatch($this);
         $it = 0;
         while($it++ < $nbQueuedTask){
-            echo 'Try dispatch with counter ' . $it . PHP_EOL;
+            Logger::log(self::$CONTEXT, 'Attempt to dispatch new task (before dispatch loop queued task = %d)', $nbQueuedTask);
             $taskAggregate = array_shift($this->taskQueue);
             if(!$this->canRunTask($taskAggregate->getTask())){
                 // Add task at the end
-                array_push($this->taskQueue);
+                array_push($this->taskQueue, $taskAggregate);
                 continue;
             }
             $this->processPoolLifecycleStrategy->onTaskPreSubmit($this);
             $worker = $this->taskDistributionStrategy->distribute(...array_values($this->loop->getProcessInfo()->getChildren()));
             // No worker is available, stop dispatch
             if(!$worker){
-                echo 'No worker available ....'.PHP_EOL;
+                Logger::log(self::$CONTEXT, 'No worker available');
                 array_push($this->taskQueue, $taskAggregate);
                 return;
             }
@@ -163,14 +166,23 @@ class ProcessPool
                  * @var $taskAggregate TaskAggregate
                  */
                 $taskAggregate = unserialize($m->getField('data')->getValue());
-                $this->taskRunning = array_values(array_filter($this->taskRunning, function(TaskAggregate $agg) use($taskAggregate) {
-                   return ! ($agg->getTask()->name() ===  $taskAggregate->getTask()->name() && $taskAggregate->getInstanceId() === $agg->getInstanceId());
+                if(false === $taskAggregate){
+                    Logger::log(ProcessPool::$CONTEXT, 'Failed to unserialize task in master process');
+                    continue;
+                }
+                $task = $taskAggregate->getTask();
+                // Remove task from running queue and add it to terminated queue
+                $this->taskRunning = array_values(array_filter($this->taskRunning, function(TaskAggregate $agg) use($taskAggregate, $task) {
+                   return ! ($agg->getTask()->name() ===  $task->name() && $taskAggregate->getInstanceId() === $agg->getInstanceId());
                 }));
                 $this->taskTerminated[] = $taskAggregate;
+                // Mark worker available
                 $this->loop->getProcessInfo()->getProcessInfo($taskAggregate->getProcessInstance()->getPid())->setAvailable(true);
-                $taskAggregate->getProcessInstance()->getPid();
-                echo 'Task terminated ' . count($this->taskTerminated) . PHP_EOL;
-
+                if($task->isPermanent()){
+                    Logger::log(self::$CONTEXT, 'Adding back task %s', $task->name());
+                    array_push($this->taskQueue, $taskAggregate);
+                }
+                // Logger::log(self::$CONTEXT, 'Number task (running | queued | terminated : %-3d | %-3d | %-3d )', count($this->taskRunning), $nbQueuedTask, count($this->taskTerminated));
             }
 
         }, function(){

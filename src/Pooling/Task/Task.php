@@ -11,21 +11,63 @@ namespace Loop\Pooling\Task;
 
 use Loop\Pooling\Task\Dependency\TaskExecutionDependency;
 
-interface Task
+abstract class Task
 {
-    function addDependencies(TaskExecutionDependency ...$dependencies): void;
+    private $dependencies = [];
+    private $name, $isPermanent;
 
+    public function __construct(string $name, bool $permanent = false, TaskExecutionDependency ...$dependencies)
+    {
+        $this->name = $name;
+        $this->isPermanent = $permanent;
+        $this->addDependencies(...$dependencies);
+    }
 
-    function getDependencies(): array;
+    public function permanent(): bool
+    {
+      return $this->isPermanent;
+    }
+
+    public function removeDependencies(TaskExecutionDependency $dependency): void {
+        $this->dependencies = array_values(array_filter($this->dependencies, function($dep) use ($dependency) {
+            return $dep === $dependency;
+        }));
+    }
+
+    /**
+     * @param bool $isPermanent
+     */
+    public function setIsPermanent(bool $isPermanent): void
+    {
+        $this->isPermanent = $isPermanent;
+    }
+
+    public function addDependencies(TaskExecutionDependency ...$dependencies): void {
+        array_push($this->dependencies, ...$dependencies);
+    }
+
+    public function getDependencies(): array {
+        return $this->dependencies;
+    }
 
     /**
      * @return string the task name
      */
-    function name(): string;
+    public function name(): string {
+        return $this->name;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isPermanent(): bool
+    {
+        return $this->isPermanent;
+    }
 
     /**
      * Task runtime code executed inside a process
      * @return TaskResult|null the task result
      */
-    function execute(): ?TaskResult;
+    abstract function execute(): ?TaskResult;
 }
