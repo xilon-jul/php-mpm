@@ -11,7 +11,7 @@ use Loop\Util\Logger;
 require_once __DIR__.'/../vendor/autoload.php';
 
 
-Logger::enable();
+Logger::disable();
 Logger::enableContexts(ProcessPool::$CONTEXT);
 
 
@@ -23,22 +23,23 @@ class TestTask extends Task {
         return null;
     }
 };
-
-
-class EveryMinuteTask extends Task {
+class PrintTask extends Task {
 
     public function execute(): ?TaskResult
     {
-        echo 'Every minute :) '.date('d/m/y H:i:s').PHP_EOL;
+        echo 'Cronified task with expression '.  $this->getDependency(PeriodicExecutionDependency::class)->getPeriodicExpression(). ' at '. date('d/m/y H:i:s').PHP_EOL;
         return null;
     }
 };
 
 $processPool = new ProcessPool(new FixedPoolStrategy(10), new FirstAvailableDispatchStrategy(0.5));
 
-$processPool->submit(new EveryMinuteTask('periodic', true, new PeriodicExecutionDependency('*/1 * * * *')));
+$processPool->submit(new PrintTask('periodic', true, new PeriodicExecutionDependency('*/1 * * * *')));
 
-for($i = 0; $i < 5; $i++){
+$processPool->submit(new PrintTask('periodic', true, new PeriodicExecutionDependency('*/2 * * * *')));
+
+
+for($i = 0; $i < 100; $i++){
     $processPool->submit(new TestTask('test'));
 }
 

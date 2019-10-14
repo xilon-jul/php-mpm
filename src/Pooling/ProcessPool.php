@@ -12,8 +12,10 @@ namespace Loop\Pooling;
 use Loop\Core\Action\LoopAction;
 use Loop\Core\Loop;
 use Loop\Core\Message\ProcessResolutionProtocolMessage;
+use Loop\Core\ProcessInfo;
 use Loop\Pooling\Strategy\ProcessPoolLifecycleStrategy;
 use Loop\Pooling\Strategy\TaskDistributionStrategy;
+use Loop\Pooling\Strategy\WorkerEvent;
 use Loop\Pooling\Task\Dependency\TaskExecutionDependency;
 use Loop\Pooling\Task\Task;
 use Loop\Pooling\Task\TaskAggregate;
@@ -77,6 +79,14 @@ class ProcessPool
     }
 
 
+    public function getNumberTerminatedTask(): int {
+        return count($this->taskTerminated);
+    }
+
+    public function getNumberRunningTask(): int {
+        return count($this->taskRunning);
+    }
+
     /**
      * Gets the number of queued task waiting to be executed
      * @return int
@@ -98,7 +108,15 @@ class ProcessPool
         return $canTaskRun;
     }
 
-
+    /**
+     * Gets the number of available workers
+     * @return int
+     */
+    public function getNumberOfAvailableWorkers(): int {
+        return count(array_filter($this->loop->getProcessInfo()->getChildren(), function(ProcessInfo $p){
+            return $p->isAvailable();
+        }));
+    }
 
     /**
      * Traverses the execution queue and for all task whose dependencies are fullfilled, give them to the distribution strategy
@@ -107,8 +125,8 @@ class ProcessPool
     private function dispatch(): void {
         $nbQueuedTask = $this->getNumberQueuedTask();
         Logger::log(self::$CONTEXT, 'Number task (running | queued | terminated : %-3d | %-3d | %-3d )', count($this->taskRunning), $nbQueuedTask, count($this->taskTerminated));
-        $this->processPoolLifecycleStrategy->onPreDispatch($this);
         $it = 0;
+        $this->processPoolLifecycleStrategy->onDispatchStart($this);
         while($it++ < $nbQueuedTask){
             Logger::log(self::$CONTEXT, 'Attempt to dispatch new task (before dispatch loop queued task = %d)', $nbQueuedTask);
             $taskAggregate = array_shift($this->taskQueue);
@@ -117,7 +135,6 @@ class ProcessPool
                 array_push($this->taskQueue, $taskAggregate);
                 continue;
             }
-            $this->processPoolLifecycleStrategy->onTaskPreSubmit($this);
             $worker = $this->taskDistributionStrategy->distribute(...array_values($this->loop->getProcessInfo()->getChildren()));
             // No worker is available, stop dispatch
             if(!$worker){
@@ -133,9 +150,8 @@ class ProcessPool
             $taskMessage->getField('data')->setValue(serialize($taskAggregate));
             $taskMessage->getField('destination_pid')->setValue($worker->getPid());
             $this->loop->submit($taskMessage);
-            $this->processPoolLifecycleStrategy->onTaskPostSubmit($this);
         }
-        $this->processPoolLifecycleStrategy->onPostDispatch($this);
+        $this->processPoolLifecycleStrategy->onDispatchEnd($this);
     }
 
     public function fork(): void {
@@ -154,6 +170,13 @@ class ProcessPool
                 }
             }, function(){ return false; });
         });
+    }
+
+
+    private function notifyStrategyChildEvent(int $type, ProcessInfo ...$list){
+                foreach ($list as $worker){
+                    $this->processPoolLifecycleStrategy->onChildEvent($this, new WorkerEvent($type, $worker));
+                }
     }
 
     public function start(): void {
@@ -182,11 +205,22 @@ class ProcessPool
                     Logger::log(self::$CONTEXT, 'Adding back task %s', $task->name());
                     array_push($this->taskQueue, $taskAggregate);
                 }
-                // Logger::log(self::$CONTEXT, 'Number task (running | queued | terminated : %-3d | %-3d | %-3d )', count($this->taskRunning), $nbQueuedTask, count($this->taskTerminated));
             }
 
         }, function(){
             return false;
+        });
+
+        $this->loop->registerActionForTrigger(LoopAction::LOOP_ACTION_PROCESS_CHILD_TERMINATED, true, false, function(Loop $loop,  ProcessInfo ...$processInfo){
+            $this->notifyStrategyChildEvent(WorkerEvent::TERMINATED, $processInfo);
+        });
+
+        $this->loop->registerActionForTrigger(LoopAction::LOOP_ACTION_PROCESS_STOPPED, true, false, function(Loop $loop, ProcessInfo ...$processInfo){
+            $this->notifyStrategyChildEvent(WorkerEvent::UNAVAILABLE, $processInfo);
+        });
+
+        $this->loop->registerActionForTrigger(LoopAction::LOOP_ACTION_PROCESS_STOPPED, true, false, function(Loop $loop, ProcessInfo ...$processInfo){
+            $this->notifyStrategyChildEvent(WorkerEvent::AVAILABLE, $processInfo);
         });
 
         $this->processPoolLifecycleStrategy->onPoolStart($this);

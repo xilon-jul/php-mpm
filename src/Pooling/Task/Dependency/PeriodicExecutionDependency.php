@@ -22,16 +22,25 @@ class PeriodicExecutionDependency implements TaskExecutionDependency
      */
     private $nextRunDate = null;
 
-    public function __construct(string $periodicExpression)
+    public function __construct(string $periodicExpression, $runNow = true)
     {
         $this->periodicExpression = $periodicExpression;
         $this->cronExpression = CronExpression::factory($this->periodicExpression);
-        $this->nextRunDate = $this->cronExpression->getPreviousRunDate();
+
+        $this->nextRunDate = $runNow ? $this->cronExpression->getPreviousRunDate() : $this->cronExpression->getNextRunDate();
     }
 
     public function onTaskExecuted(ProcessPool $pool): void
     {
         // TODO: Implement onTaskExecuted() method.
+    }
+
+    /**
+     * @return string
+     */
+    public function getPeriodicExpression(): string
+    {
+        return $this->periodicExpression;
     }
 
     function isFullfill(ProcessPool $pool, Task $task): bool {

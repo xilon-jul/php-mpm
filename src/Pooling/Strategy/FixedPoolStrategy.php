@@ -33,23 +33,18 @@ class FixedPoolStrategy implements ProcessPoolLifecycleStrategy
         }
     }
 
-    function onPreDispatch(ProcessPool $processPool): void
+    function onChildEvent(ProcessPool $pool, WorkerEvent $event): void
     {
-        // TODO: Implement onPreDispatch() method.
+
     }
 
-    function onTaskPreSubmit(ProcessPool $processPool): void
+    function onDispatchStart(ProcessPool $processPool): void
     {
-        // TODO: Implement onTaskPreSubmit() method.
+        // TODO: Implement onDispatchStart() method.
     }
 
-    function onTaskPostSubmit(ProcessPool $processPool): void
+    function onDispatchEnd(ProcessPool $processPool): void
     {
-        // TODO: Implement onTaskPostSubmit() method.
-    }
-
-    function onPostDispatch(ProcessPool $processPool): void
-    {
-        // TODO: Implement onPostDispatch() method.
+        // TODO: Implement onDispatchEnd() method.
     }
 }

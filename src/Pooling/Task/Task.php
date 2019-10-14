@@ -34,6 +34,15 @@ abstract class Task
         }));
     }
 
+    public function getDependency(string $dependencyClass): ?TaskExecutionDependency {
+        foreach($this->dependencies as $dep){
+            if (get_class($dep) === $dependencyClass){
+                return $dep;
+            }
+        }
+        return null;
+    }
+
     /**
      * @param bool $isPermanent
      */
