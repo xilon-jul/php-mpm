@@ -33,10 +33,6 @@ $loop->addPeriodTimer(3, function(Loop $loop) use($exampleMessage) {
 
 
 $loop->registerActionForTrigger(LoopAction::LOOP_ACTION_MESSAGE_RECEIVED, true, false, function(Loop $loop, ...$messages){
-    // fprintf(STDOUT, 'In process %5d : received %d messages %s', $loop->getProcessInfo()->getPid(), count($messages), PHP_EOL);
-    /**
-     * @var $m ProcessResolutionProtocolMessage
-     */
     foreach($messages as $m){
         fprintf(STDOUT, 'In process %5d : Message data : %s %s', $loop->getProcessInfo()->getPid(), $m->getField('data')->getValue(), PHP_EOL);
     }

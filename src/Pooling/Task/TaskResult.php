@@ -1,10 +1,5 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: jpons
- * Date: 2019-08-06
- * Time: 12:17
- */
+
 
 namespace Loop\Pooling\Task;
 

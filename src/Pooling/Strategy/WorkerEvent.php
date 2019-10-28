@@ -34,4 +34,22 @@ class WorkerEvent {
         return $this->worker;
     }
 
+    private function toStringEventType(): string {
+        switch ($this->eventType){
+            case self::TERMINATED:
+                return 'terminated';
+            case self::AVAILABLE:
+                return 'available';
+            case self::UNAVAILABLE:
+                return 'unavailable';
+            default:
+                return 'unknown';
+        }
+    }
+
+    public function __toString()
+    {
+        return sprintf('worker: %s | event: %s', $this->getWorker(), $this->toStringEventType());
+    }
+
 }

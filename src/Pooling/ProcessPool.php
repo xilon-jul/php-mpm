@@ -1,10 +1,5 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: jpons
- * Date: 2019-08-05
- * Time: 18:40
- */
+
 
 namespace Loop\Pooling;
 
@@ -212,15 +207,15 @@ class ProcessPool
         });
 
         $this->loop->registerActionForTrigger(LoopAction::LOOP_ACTION_PROCESS_CHILD_TERMINATED, true, false, function(Loop $loop,  ProcessInfo ...$processInfo){
-            $this->notifyStrategyChildEvent(WorkerEvent::TERMINATED, $processInfo);
+            $this->notifyStrategyChildEvent(WorkerEvent::TERMINATED, ...$processInfo);
         });
 
         $this->loop->registerActionForTrigger(LoopAction::LOOP_ACTION_PROCESS_STOPPED, true, false, function(Loop $loop, ProcessInfo ...$processInfo){
-            $this->notifyStrategyChildEvent(WorkerEvent::UNAVAILABLE, $processInfo);
+            $this->notifyStrategyChildEvent(WorkerEvent::UNAVAILABLE, ...$processInfo);
         });
 
-        $this->loop->registerActionForTrigger(LoopAction::LOOP_ACTION_PROCESS_STOPPED, true, false, function(Loop $loop, ProcessInfo ...$processInfo){
-            $this->notifyStrategyChildEvent(WorkerEvent::AVAILABLE, $processInfo);
+        $this->loop->registerActionForTrigger(LoopAction::LOOP_ACTION_PROCESS_CONTINUED, true, false, function(Loop $loop, ProcessInfo ...$processInfo){
+            $this->notifyStrategyChildEvent(WorkerEvent::AVAILABLE, ...$processInfo);
         });
 
         $this->processPoolLifecycleStrategy->onPoolStart($this);

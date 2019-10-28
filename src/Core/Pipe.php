@@ -1,10 +1,4 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: jpons
- * Date: 2019-03-27
- * Time: 17:02
- */
 
 namespace Loop\Core;
 

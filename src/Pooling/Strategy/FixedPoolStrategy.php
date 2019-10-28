@@ -1,15 +1,10 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: jpons
- * Date: 2019-08-11
- * Time: 15:06
- */
 
 namespace Loop\Pooling\Strategy;
 
 
 use Loop\Pooling\ProcessPool;
+use Loop\Util\Logger;
 
 class FixedPoolStrategy implements ProcessPoolLifecycleStrategy
 {
@@ -35,7 +30,7 @@ class FixedPoolStrategy implements ProcessPoolLifecycleStrategy
 
     function onChildEvent(ProcessPool $pool, WorkerEvent $event): void
     {
-
+        Logger::log(ProcessPool::$CONTEXT, '%s %s', __FUNCTION__, $event);
     }
 
     function onDispatchStart(ProcessPool $processPool): void

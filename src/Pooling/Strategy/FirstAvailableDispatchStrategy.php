@@ -1,11 +1,4 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: jpons
- * Date: 2019-08-11
- * Time: 14:17
- */
-
 namespace Loop\Pooling\Strategy;
 
 

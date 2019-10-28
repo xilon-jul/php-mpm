@@ -1,10 +1,5 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: jpons
- * Date: 2019-03-28
- * Time: 21:31
- */
+
 
 namespace Loop\Core\Action;
 

@@ -1,10 +1,5 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: jpons
- * Date: 29/06/2018
- * Time: 16:27
- */
+
 namespace Loop\Protocol\Exception;
 
 use Loop\Protocol\Field\ProtocolField;
